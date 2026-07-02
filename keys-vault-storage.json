@@ -1,0 +1,67 @@
+{
+  "keys": [
+    {
+      "id": "key_fpedxy6wa",
+      "providerId": "openai",
+      "name": "OpenAI API Key",
+      "encryptedValue": "ea4067293d147047f920389bfd5b9265:a23c6ee8e238a92f0df8c65ae5423e35444fbd5888085ea406b3fb6ade95a6f4c715ff8a509153e464a43f517fe29f99cf908fbbf8a31ca645b94c3a850b1afb2e0f68ff7c557378a1da3af58460f787d4e013547d605175a6a1e13584bb3453d005e1e205c712dc231c5fe29c8bb6f8884b5b51ef87338e6ccc5bc90ea7ed15f804778b171e2ed3e93765b9bb2d72165583c3119a045a333f13da8503febdcb824ecbb9998e453d226feee491a42062",
+      "status": "active",
+      "environment": "production",
+      "lastUpdated": "2026-06-28T20:44:07.611Z",
+      "isDeleted": false,
+      "version": 1
+    },
+    {
+      "id": "key_4i32sugnv",
+      "providerId": "stripe",
+      "name": "Stripe Publishable Key",
+      "encryptedValue": "7db0bc866f11b5ad25b43409fdfcbca4:32f4c45a36714eded8c569e52848fc716924ac93419cf63360a00a7790cff5b3a72433bacf0da312f2ae47ed991304449e6190c9d227d300346b9120d8a5dffd43146ed21b7cc3635dafff4b1595fcb618ed83666b97346620f4e1d53ca0d35f329720a795afa854538b3b6cf30e1380",
+      "status": "active",
+      "environment": "production",
+      "lastUpdated": "2026-06-29T11:40:13.150Z",
+      "isDeleted": false,
+      "version": 1
+    },
+    {
+      "id": "key_afiro18o4",
+      "providerId": "stripe",
+      "name": "Stripe Publishable Key",
+      "encryptedValue": "07783f9dc141a7701b43060336e3f698:d0a7ef14925c93ae850ba130f19888680a75f834b19baf7460c1e7f195a898a1869e8f17a32aaed4408b6b9317becc26cd5c0ab173fb8d2027b64f1301975f61e03e8d15af793c5318c2cb3b9c5886e465f86cd7fd4a2ec56a7bb08e8f1b15ad427b7ebb43ba1c952333256f2e5bcfca",
+      "status": "active",
+      "environment": "development",
+      "lastUpdated": "2026-06-29T11:40:13.150Z",
+      "isDeleted": false,
+      "version": 1
+    }
+  ],
+  "auditLogs": [
+    {
+      "id": "log_1gvfk8gvb",
+      "timestamp": "2026-06-28T20:44:07.611Z",
+      "action": "create",
+      "keyId": "key_fpedxy6wa",
+      "providerId": "openai",
+      "actor": "AI Assistant",
+      "details": "Created key named \"OpenAI API Key\""
+    },
+    {
+      "id": "log_myu8z7sl9",
+      "timestamp": "2026-06-29T11:40:13.150Z",
+      "action": "create",
+      "keyId": "key_4i32sugnv",
+      "providerId": "stripe",
+      "actor": "Admin Setup",
+      "details": "Created key named \"Stripe Publishable Key\""
+    },
+    {
+      "id": "log_bjpce5045",
+      "timestamp": "2026-06-29T11:40:13.150Z",
+      "action": "create",
+      "keyId": "key_afiro18o4",
+      "providerId": "stripe",
+      "actor": "Admin Setup",
+      "details": "Created key named \"Stripe Publishable Key\""
+    }
+  ],
+  "alerts": []
+}

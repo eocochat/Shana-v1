@@ -1,0 +1,157 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account identity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "email", "name", "created_at"]
+    },
+    "Profile": {
+      "title": "Profile",
+      "description": "User onboarding + CV intelligence",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "target_role": { "type": "string" },
+        "experience_level": { "type": "string" },
+        "language": { "type": "string" },
+        "cv_data": { "type": "object" }
+      },
+      "required": ["id", "user_id", "target_role", "experience_level", "language"]
+    },
+    "InterviewSession": {
+      "title": "InterviewSession",
+      "description": "Represents one interview session lifecycle",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "mode": { "type": "string" },
+        "status": { "type": "string" },
+        "ips_score": { "type": "integer" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "user_id", "mode", "status", "ips_score", "created_at"]
+    },
+    "Answer": {
+      "title": "Answer",
+      "description": "Store interview responses for a session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "session_id": { "type": "string" },
+        "question": { "type": "string" },
+        "answer": { "type": "string" },
+        "duration": { "type": "integer" },
+        "ips_score": { "type": "integer" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "session_id", "question", "answer", "duration", "ips_score", "created_at"]
+    },
+    "Score": {
+      "title": "Score",
+      "description": "Store evaluation history of clarity, structure, confidence, relevance, conciseness, and total IPS",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "session_id": { "type": "string" },
+        "clarity": { "type": "integer" },
+        "structure": { "type": "integer" },
+        "confidence": { "type": "integer" },
+        "relevance": { "type": "integer" },
+        "conciseness": { "type": "integer" },
+        "ips_total": { "type": "integer" }
+      },
+      "required": ["id", "session_id", "clarity", "structure", "confidence", "relevance", "conciseness", "ips_total"]
+    },
+    "Insight": {
+      "title": "Insight",
+      "description": "Store serendipity discoveries",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "session_id": { "type": "string" },
+        "type": { "type": "string" },
+        "content": { "type": "string" },
+        "confidence_score": { "type": "integer" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "user_id", "session_id", "type", "content", "confidence_score", "created_at"]
+    },
+    "Event": {
+      "title": "Event",
+      "description": "Immutable operational memory event log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "session_id": { "type": "string" },
+        "event_type": { "type": "string" },
+        "payload": { "type": "object" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "user_id", "session_id", "event_type", "payload", "created_at"]
+    },
+    "Job": {
+      "title": "Job",
+      "description": "Represents an asynchronous background job processing node",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "jobType": { "type": "string" },
+        "userId": { "type": "string" },
+        "priority": { "type": "string" },
+        "payload": { "type": "object" },
+        "retryCount": { "type": "integer" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "startedAt": { "type": "string" },
+        "finishedAt": { "type": "string" },
+        "errorLog": { "type": "string" }
+      },
+      "required": ["id", "jobType", "userId", "priority", "payload", "retryCount", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "User" },
+      "description": "Collection of user identities"
+    },
+    "/profiles/{profileId}": {
+      "schema": { "$ref": "Profile" },
+      "description": "Collection of candidate profiles"
+    },
+    "/interview_sessions/{sessionId}": {
+      "schema": { "$ref": "InterviewSession" },
+      "description": "Collection of interview session lifecycles"
+    },
+    "/answers/{answerId}": {
+      "schema": { "$ref": "Answer" },
+      "description": "Collection of responses given during interview sessions"
+    },
+    "/scores/{scoreId}": {
+      "schema": { "$ref": "Score" },
+      "description": "Collection of evaluations and skill scores"
+    },
+    "/insights/{insightId}": {
+      "schema": { "$ref": "Insight" },
+      "description": "Collection of serendipity discoveries"
+    },
+    "/events/{eventId}": {
+      "schema": { "$ref": "Event" },
+      "description": "Collection of immutable replayable system events"
+    },
+    "/jobs/{jobId}": {
+      "schema": { "$ref": "Job" },
+      "description": "Collection of background queue jobs"
+    }
+  }
+}

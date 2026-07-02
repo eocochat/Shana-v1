@@ -1,0 +1,6 @@
+{
+  "name": "SHANA",
+  "description": "High-fidelity French and English interview training and assessment platform.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,379 @@
+{
+  "logs": [
+    {
+      "id": "seed_log_0",
+      "timestamp": "2026-06-28T20:34:48.190Z",
+      "service": "auth",
+      "severity": "warning",
+      "feature": "session-validation",
+      "message": "Latency warning detected in auth of 240ms for session-validation",
+      "sessionId": "sess_10000"
+    },
+    {
+      "id": "seed_log_1",
+      "timestamp": "2026-06-28T20:14:48.190Z",
+      "service": "openai",
+      "severity": "info",
+      "feature": "gpt-interview-coach",
+      "message": "Successfully completed task for gpt-interview-coach in openai"
+    },
+    {
+      "id": "seed_log_2",
+      "timestamp": "2026-06-28T19:54:48.190Z",
+      "service": "stripe",
+      "severity": "info",
+      "feature": "subscription-sync",
+      "message": "Successfully completed task for subscription-sync in stripe"
+    },
+    {
+      "id": "seed_log_3",
+      "timestamp": "2026-06-28T19:34:48.190Z",
+      "service": "database",
+      "severity": "info",
+      "feature": "sqlite-query",
+      "message": "Successfully completed task for sqlite-query in database",
+      "sessionId": "sess_10003"
+    },
+    {
+      "id": "seed_log_4",
+      "timestamp": "2026-06-28T19:14:48.190Z",
+      "service": "system",
+      "severity": "info",
+      "feature": "health-ping",
+      "message": "Successfully completed task for health-ping in system"
+    },
+    {
+      "id": "seed_log_5",
+      "timestamp": "2026-06-28T18:54:48.190Z",
+      "service": "admin",
+      "severity": "info",
+      "feature": "audit-fetch",
+      "message": "Successfully completed task for audit-fetch in admin"
+    },
+    {
+      "id": "seed_log_6",
+      "timestamp": "2026-06-28T18:34:48.190Z",
+      "service": "interview",
+      "severity": "info",
+      "feature": "speak-stream",
+      "message": "Successfully completed task for speak-stream in interview",
+      "sessionId": "sess_10006"
+    },
+    {
+      "id": "seed_log_7",
+      "timestamp": "2026-06-28T18:14:48.190Z",
+      "service": "auth",
+      "severity": "info",
+      "feature": "jwt-generation",
+      "message": "Successfully completed task for jwt-generation in auth"
+    },
+    {
+      "id": "seed_log_8",
+      "timestamp": "2026-06-28T17:54:48.190Z",
+      "service": "openai",
+      "severity": "info",
+      "feature": "cv-parsing",
+      "message": "Successfully completed task for cv-parsing in openai"
+    },
+    {
+      "id": "seed_log_9",
+      "timestamp": "2026-06-28T17:34:48.190Z",
+      "service": "stripe",
+      "severity": "info",
+      "feature": "checkout-session-creation",
+      "message": "Successfully completed task for checkout-session-creation in stripe",
+      "sessionId": "sess_10009"
+    },
+    {
+      "id": "seed_log_10",
+      "timestamp": "2026-06-28T17:14:48.190Z",
+      "service": "database",
+      "severity": "info",
+      "feature": "user-sync",
+      "message": "Successfully completed task for user-sync in database"
+    },
+    {
+      "id": "seed_log_11",
+      "timestamp": "2026-06-28T16:54:48.190Z",
+      "service": "system",
+      "severity": "info",
+      "feature": "scheduler-cron",
+      "message": "Successfully completed task for scheduler-cron in system"
+    },
+    {
+      "id": "seed_log_12",
+      "timestamp": "2026-06-28T16:34:48.190Z",
+      "service": "admin",
+      "severity": "info",
+      "feature": "key-vault-update",
+      "message": "Successfully completed task for key-vault-update in admin",
+      "sessionId": "sess_10012"
+    },
+    {
+      "id": "seed_log_13",
+      "timestamp": "2026-06-28T16:14:48.190Z",
+      "service": "interview",
+      "severity": "info",
+      "feature": "audio-analysis",
+      "message": "Successfully completed task for audio-analysis in interview"
+    },
+    {
+      "id": "seed_log_14",
+      "timestamp": "2026-06-28T15:54:48.190Z",
+      "service": "auth",
+      "severity": "info",
+      "feature": "admin-login",
+      "message": "Successfully completed task for admin-login in auth"
+    },
+    {
+      "id": "seed_log_15",
+      "timestamp": "2026-06-28T15:34:48.190Z",
+      "service": "openai",
+      "severity": "warning",
+      "feature": "text-to-speech",
+      "message": "Latency warning detected in openai of 420ms for text-to-speech",
+      "sessionId": "sess_10015"
+    },
+    {
+      "id": "seed_log_16",
+      "timestamp": "2026-06-28T15:14:48.190Z",
+      "service": "stripe",
+      "severity": "info",
+      "feature": "webhook-validation",
+      "message": "Successfully completed task for webhook-validation in stripe"
+    },
+    {
+      "id": "seed_log_17",
+      "timestamp": "2026-06-28T14:54:48.190Z",
+      "service": "database",
+      "severity": "info",
+      "feature": "audit-write",
+      "message": "Successfully completed task for audit-write in database"
+    },
+    {
+      "id": "seed_log_18",
+      "timestamp": "2026-06-28T14:34:48.190Z",
+      "service": "system",
+      "severity": "info",
+      "feature": "server-boot",
+      "message": "Successfully completed task for server-boot in system",
+      "sessionId": "sess_10018"
+    },
+    {
+      "id": "seed_log_19",
+      "timestamp": "2026-06-28T14:14:48.190Z",
+      "service": "admin",
+      "severity": "info",
+      "feature": "user-role-promotion",
+      "message": "Successfully completed task for user-role-promotion in admin"
+    },
+    {
+      "id": "seed_log_20",
+      "timestamp": "2026-06-28T13:54:48.190Z",
+      "service": "interview",
+      "severity": "info",
+      "feature": "history-save",
+      "message": "Successfully completed task for history-save in interview"
+    },
+    {
+      "id": "seed_log_21",
+      "timestamp": "2026-06-28T13:34:48.190Z",
+      "service": "auth",
+      "severity": "info",
+      "feature": "session-validation",
+      "message": "Successfully completed task for session-validation in auth",
+      "sessionId": "sess_10021"
+    },
+    {
+      "id": "seed_log_22",
+      "timestamp": "2026-06-28T13:14:48.190Z",
+      "service": "openai",
+      "severity": "info",
+      "feature": "gpt-interview-coach",
+      "message": "Successfully completed task for gpt-interview-coach in openai"
+    },
+    {
+      "id": "seed_log_23",
+      "timestamp": "2026-06-28T12:54:48.190Z",
+      "service": "stripe",
+      "severity": "info",
+      "feature": "subscription-sync",
+      "message": "Successfully completed task for subscription-sync in stripe"
+    },
+    {
+      "id": "seed_log_24",
+      "timestamp": "2026-06-28T12:34:48.190Z",
+      "service": "database",
+      "severity": "info",
+      "feature": "sqlite-query",
+      "message": "Successfully completed task for sqlite-query in database",
+      "sessionId": "sess_10024"
+    },
+    {
+      "id": "seed_log_25",
+      "timestamp": "2026-06-28T12:14:48.190Z",
+      "service": "system",
+      "severity": "info",
+      "feature": "health-ping",
+      "message": "Successfully completed task for health-ping in system"
+    },
+    {
+      "id": "seed_log_26",
+      "timestamp": "2026-06-28T11:54:48.190Z",
+      "service": "admin",
+      "severity": "info",
+      "feature": "audit-fetch",
+      "message": "Successfully completed task for audit-fetch in admin"
+    },
+    {
+      "id": "seed_log_27",
+      "timestamp": "2026-06-28T11:34:48.190Z",
+      "service": "interview",
+      "severity": "info",
+      "feature": "speak-stream",
+      "message": "Successfully completed task for speak-stream in interview",
+      "sessionId": "sess_10027"
+    },
+    {
+      "id": "seed_log_28",
+      "timestamp": "2026-06-28T11:14:48.190Z",
+      "service": "auth",
+      "severity": "info",
+      "feature": "jwt-generation",
+      "message": "Successfully completed task for jwt-generation in auth"
+    },
+    {
+      "id": "seed_log_29",
+      "timestamp": "2026-06-28T10:54:48.190Z",
+      "service": "openai",
+      "severity": "info",
+      "feature": "cv-parsing",
+      "message": "Successfully completed task for cv-parsing in openai"
+    },
+    {
+      "id": "seed_log_30",
+      "timestamp": "2026-06-28T10:34:48.190Z",
+      "service": "stripe",
+      "severity": "warning",
+      "feature": "checkout-session-creation",
+      "message": "Latency warning detected in stripe of 600ms for checkout-session-creation",
+      "sessionId": "sess_10030"
+    },
+    {
+      "id": "seed_log_31",
+      "timestamp": "2026-06-28T10:14:48.190Z",
+      "service": "database",
+      "severity": "info",
+      "feature": "user-sync",
+      "message": "Successfully completed task for user-sync in database"
+    },
+    {
+      "id": "seed_log_32",
+      "timestamp": "2026-06-28T09:54:48.190Z",
+      "service": "system",
+      "severity": "info",
+      "feature": "scheduler-cron",
+      "message": "Successfully completed task for scheduler-cron in system"
+    },
+    {
+      "id": "seed_log_33",
+      "timestamp": "2026-06-28T09:34:48.190Z",
+      "service": "admin",
+      "severity": "info",
+      "feature": "key-vault-update",
+      "message": "Successfully completed task for key-vault-update in admin",
+      "sessionId": "sess_10033"
+    },
+    {
+      "id": "seed_log_34",
+      "timestamp": "2026-06-28T09:14:48.190Z",
+      "service": "interview",
+      "severity": "info",
+      "feature": "audio-analysis",
+      "message": "Successfully completed task for audio-analysis in interview"
+    },
+    {
+      "id": "seed_log_35",
+      "timestamp": "2026-06-28T08:54:48.190Z",
+      "service": "auth",
+      "severity": "info",
+      "feature": "admin-login",
+      "message": "Successfully completed task for admin-login in auth"
+    },
+    {
+      "id": "seed_log_36",
+      "timestamp": "2026-06-28T08:34:48.190Z",
+      "service": "openai",
+      "severity": "info",
+      "feature": "text-to-speech",
+      "message": "Successfully completed task for text-to-speech in openai",
+      "sessionId": "sess_10036"
+    },
+    {
+      "id": "seed_log_37",
+      "timestamp": "2026-06-28T08:14:48.190Z",
+      "service": "stripe",
+      "severity": "info",
+      "feature": "webhook-validation",
+      "message": "Successfully completed task for webhook-validation in stripe"
+    },
+    {
+      "id": "seed_log_38",
+      "timestamp": "2026-06-28T07:54:48.190Z",
+      "service": "database",
+      "severity": "info",
+      "feature": "audit-write",
+      "message": "Successfully completed task for audit-write in database"
+    },
+    {
+      "id": "seed_log_39",
+      "timestamp": "2026-06-28T07:34:48.190Z",
+      "service": "system",
+      "severity": "info",
+      "feature": "server-boot",
+      "message": "Successfully completed task for server-boot in system",
+      "sessionId": "sess_10039"
+    },
+    {
+      "id": "seed_log_40",
+      "timestamp": "2026-06-28T07:14:48.190Z",
+      "service": "admin",
+      "severity": "info",
+      "feature": "user-role-promotion",
+      "message": "Successfully completed task for user-role-promotion in admin"
+    },
+    {
+      "id": "seed_log_41",
+      "timestamp": "2026-06-28T06:54:48.190Z",
+      "service": "interview",
+      "severity": "info",
+      "feature": "history-save",
+      "message": "Successfully completed task for history-save in interview"
+    },
+    {
+      "id": "seed_log_42",
+      "timestamp": "2026-06-28T06:34:48.190Z",
+      "service": "auth",
+      "severity": "info",
+      "feature": "session-validation",
+      "message": "Successfully completed task for session-validation in auth",
+      "sessionId": "sess_10042"
+    },
+    {
+      "id": "seed_log_43",
+      "timestamp": "2026-06-28T06:14:48.190Z",
+      "service": "openai",
+      "severity": "info",
+      "feature": "gpt-interview-coach",
+      "message": "Successfully completed task for gpt-interview-coach in openai"
+    },
+    {
+      "id": "seed_log_44",
+      "timestamp": "2026-06-28T05:54:48.190Z",
+      "service": "stripe",
+      "severity": "info",
+      "feature": "subscription-sync",
+      "message": "Successfully completed task for subscription-sync in stripe"
+    }
+  ]
+}

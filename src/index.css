@@ -1,0 +1,142 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --color-primary: #111111;
+  --color-brand: #18633F;
+  --color-secondary: #334155;
+  --color-surface: #FFFFFF;
+  --color-muted: #475569;
+  --color-app-bg: #BAC9BE;
+}
+
+/* Custom styles for AI Interview Experience OS */
+html, body {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #BAC9BE;
+  color: #111111;
+  min-height: 100vh;
+}
+
+/* Premium Neo-brutalist dot-grid background */
+.premium-mesh-bg {
+  background-color: #BAC9BE;
+  background-image: radial-gradient(rgba(17, 24, 39, 0.08) 1.5px, transparent 1.5px);
+  background-size: 20px 20px;
+  background-attachment: fixed;
+}
+
+/* Neo-brutalist Core design system helpers */
+.neo-card {
+  background-color: #FFFFFF;
+  border: 2.5px solid #111111;
+  border-radius: 24px;
+  box-shadow: 4px 4px 0px 0px #111111;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.neo-card:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 6px 6px 0px 0px #111111;
+}
+
+.neo-card-green {
+  background-color: #18633F;
+  border: 2.5px solid #111111;
+  border-radius: 24px;
+  box-shadow: 4px 4px 0px 0px #111111;
+  color: #FFFFFF;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.neo-card-green:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 6px 6px 0px 0px #111111;
+}
+
+.neo-card-yellow {
+  background-color: #EDC154;
+  border: 2.5px solid #111111;
+  border-radius: 24px;
+  box-shadow: 4px 4px 0px 0px #111111;
+  color: #111111;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.neo-card-yellow:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 6px 6px 0px 0px #111111;
+}
+
+.neo-card-coral {
+  background-color: #FF7E5F;
+  border: 2.5px solid #111111;
+  border-radius: 24px;
+  box-shadow: 4px 4px 0px 0px #111111;
+  color: #111111;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.neo-card-coral:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 6px 6px 0px 0px #111111;
+}
+
+.neo-btn {
+  border: 2px solid #111111;
+  box-shadow: 3px 3px 0px 0px #111111;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.neo-btn:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4.5px 4.5px 0px 0px #111111;
+}
+.neo-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px 0px #111111;
+}
+
+.neo-pill {
+  border: 1.5px solid #111111;
+  box-shadow: 1.5px 1.5px 0px 0px #111111;
+}
+
+/* Heartbeat and pulsing animations */
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.05); }
+}
+
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  30% { transform: scale(1.03); }
+  60% { transform: scale(0.99); }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 3s infinite ease-in-out;
+}
+
+.animate-heartbeat {
+  animation: heartbeat 1.5s infinite ease-in-out;
+}
+
+.scroller::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scroller::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.5);
+}
+.scroller::-webkit-scrollbar-thumb {
+  background: rgba(24, 99, 63, 0.15);
+  border-radius: 9999px;
+}
+.scroller::-webkit-scrollbar-thumb:hover {
+  background: rgba(24, 99, 63, 0.3);
+}
+
+
