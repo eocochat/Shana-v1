@@ -424,7 +424,7 @@ export default function ProgressChart({ history, lang }: ProgressChartProps) {
       </div>
 
       {/* Main visualization split flexpane - Chart on left/top, Details on right/bottom */}
-      <div className="flex flex-col xl:flex-row gap-6 mt-4 flex-1 items-stretch">
+      <div className="flex flex-col sm:flex-row lg:flex-col gap-6 mt-4 flex-1 items-stretch">
         
         {/* The Actual D3 Chart SVG Container - expands */}
         <div ref={containerRef} className="flex-1 flex items-center justify-center relative select-none min-h-[260px]">
@@ -437,7 +437,7 @@ export default function ProgressChart({ history, lang }: ProgressChartProps) {
         </div>
 
         {/* Metric details panel of the currently active/hovered point */}
-        <div id="metric-spotcheck-details" className="w-full xl:w-[240px] shrink-0 flex flex-col justify-between gap-4">
+        <div id="metric-spotcheck-details" className="w-full sm:w-[240px] lg:w-full shrink-0 flex flex-col justify-between gap-4">
           <div className="bg-[#FAFAFA] border-2 border-stone-950 p-5 rounded-[24px] space-y-3.5 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
             <span className="text-[9px] font-mono font-black text-stone-500 uppercase tracking-wider block">
               {lang === 'EN' ? "Session Spot-Check" : "Point d'Étape Sélectionné"}

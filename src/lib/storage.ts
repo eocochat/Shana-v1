@@ -274,17 +274,19 @@ export const StorageService = {
       // Trigger cloud-to-local synchronization
       DbSyncManager.syncCloudToLocal(userId);
 
-      fetch('/api/auth/login', {
+      const targetUrl = `${window.location.origin}/api/auth/login`;
+      fetch(targetUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ userId }),
-      }).catch(err => console.error('[SHANA Storage] Failed to register server cookie session:', err));
+      }).catch(err => console.warn('[SHANA Storage] Failed to register server cookie session (benign if offline):', err));
     } else {
-      fetch('/api/auth/logout', {
+      const targetUrl = `${window.location.origin}/api/auth/logout`;
+      fetch(targetUrl, {
         method: 'POST',
-      }).catch(err => console.error('[SHANA Storage] Failed to clear server cookie session:', err));
+      }).catch(err => console.warn('[SHANA Storage] Failed to clear server cookie session:', err));
     }
   },
 
@@ -473,6 +475,7 @@ export const StorageService = {
     localStorage.setItem(key, JSON.stringify(data));
     try {
       window.dispatchEvent(new Event('shana_progress_update'));
+      DbSyncManager.saveMonetizationToCloud(userId, data);
     } catch (e) {}
   },
 

@@ -60,6 +60,22 @@ const localJobsStore = new Map<string, Job>();
 type JobHandler = (payload: any, userId: string) => Promise<any>;
 const jobHandlers = new Map<string, JobHandler>();
 
+// Helper to prepare job objects for safe Firestore storage without undefined properties or large base64 data
+function cleanJobForDb(job: Job): any {
+  const clean = { ...job };
+  if (clean.startedAt === undefined) delete clean.startedAt;
+  if (clean.finishedAt === undefined) delete clean.finishedAt;
+  if (clean.runAfter === undefined) delete clean.runAfter;
+  if (clean.errorLog === undefined) delete clean.errorLog;
+  if (clean.payload) {
+    clean.payload = { ...clean.payload };
+    if (clean.payload.fileBase64) {
+      clean.payload.fileBase64 = "[omitted_for_db_limit]";
+    }
+  }
+  return clean;
+}
+
 // ==========================================
 // 2. QUEUE SYSTEM SERVICE
 // ==========================================
@@ -243,7 +259,7 @@ export class QueueSystem {
     // Save job to DB
     try {
       const jobRef = doc(db, "jobs", jobId);
-      await setDoc(jobRef, job);
+      await setDoc(jobRef, cleanJobForDb(job));
     } catch (e) {
       console.warn("[QueueSystem] Firestore job persistence deferred, using local fallback:", e);
     }
@@ -410,6 +426,14 @@ export class QueueSystem {
     const jobRef = doc(db, "jobs", job.id);
     const updatedSnap = await getDoc(jobRef).catch(() => null);
     const activeJob = updatedSnap && updatedSnap.exists() ? (updatedSnap.data() as Job) : localJobsStore.get(job.id)!;
+    if (activeJob) {
+      const localJob = localJobsStore.get(job.id);
+      if (localJob && localJob.payload && localJob.payload.fileBase64 && localJob.payload.fileBase64 !== "[omitted_for_db_limit]") {
+        activeJob.payload = { ...activeJob.payload, fileBase64: localJob.payload.fileBase64 };
+      }
+    } else {
+      return;
+    }
     localJobsStore.set(job.id, activeJob);
 
     console.log(`[QueueSystem] [WORKER] Claimed Job [${activeJob.id}] | Executing...`);
@@ -428,10 +452,10 @@ export class QueueSystem {
       // On Success
       activeJob.status = 'completed';
       activeJob.finishedAt = new Date().toISOString();
-      activeJob.errorLog = undefined;
+      delete activeJob.errorLog;
 
       // Persist to DB
-      await setDoc(doc(db, "jobs", activeJob.id), activeJob).catch(() => {});
+      await setDoc(doc(db, "jobs", activeJob.id), cleanJobForDb(activeJob)).catch(() => {});
       localJobsStore.set(activeJob.id, activeJob);
 
       console.log(`[QueueSystem] [WORKER] Completed Job [${activeJob.id}] successfully!`);
@@ -453,7 +477,7 @@ export class QueueSystem {
         activeJob.status = 'queued';
         activeJob.runAfter = runAfterTime;
 
-        await setDoc(doc(db, "jobs", activeJob.id), activeJob).catch(() => {});
+        await setDoc(doc(db, "jobs", activeJob.id), cleanJobForDb(activeJob)).catch(() => {});
         localJobsStore.set(activeJob.id, activeJob);
 
         await DocumentEventService.emitEvent(
@@ -468,7 +492,7 @@ export class QueueSystem {
         activeJob.status = 'dead_letter';
         activeJob.finishedAt = new Date().toISOString();
 
-        await setDoc(doc(db, "jobs", activeJob.id), activeJob).catch(() => {});
+        await setDoc(doc(db, "jobs", activeJob.id), cleanJobForDb(activeJob)).catch(() => {});
         localJobsStore.set(activeJob.id, activeJob);
 
         await DocumentEventService.emitEvent(
@@ -506,11 +530,11 @@ export class QueueSystem {
 
     job.status = 'queued';
     job.retryCount = 0;
-    job.runAfter = undefined;
-    job.errorLog = undefined;
+    delete job.runAfter;
+    delete job.errorLog;
     job.createdAt = new Date().toISOString();
 
-    await setDoc(doc(db, "jobs", jobId), job);
+    await setDoc(doc(db, "jobs", jobId), cleanJobForDb(job));
     localJobsStore.set(jobId, job);
 
     console.log(`[QueueSystem] [ADMIN] Manually retried Job [${jobId}] from DLQ.`);
@@ -624,9 +648,9 @@ export class QueueSystem {
         if (startTime < fiveMinutesAgo) {
           job.status = 'queued';
           job.errorLog = "Failsafe recovered: job marked as hung or crashed on active worker.";
-          job.runAfter = undefined;
+          delete job.runAfter;
           
-          await setDoc(doc(db, "jobs", job.id), job).catch(() => {});
+          await setDoc(doc(db, "jobs", job.id), cleanJobForDb(job)).catch(() => {});
           localJobsStore.set(job.id, job);
           recoveredCount++;
           console.log(`[QueueSystem] [FAILSAFE] Recovered hung job: ${job.id}`);

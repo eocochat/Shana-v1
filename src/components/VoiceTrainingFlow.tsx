@@ -28,6 +28,7 @@ import { StorageService } from '../lib/storage';
 import { InterviewVoiceManager } from '../lib/InterviewVoiceManager';
 import CheckoutModal from './CheckoutModal';
 import { SerendipityService } from '../lib/serendipity';
+import { TurnDetector } from '../lib/conversation/conversationDirector';
 
 interface VoiceTrainingFlowProps {
   currentUser: UserType;
@@ -195,6 +196,20 @@ export default function VoiceTrainingFlow({
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const isUtteredRef = useRef<boolean>(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64data = reader.result as string;
+        resolve(base64data);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
   
   // Final Review outcomes
   const [isGeneratingReview, setIsGeneratingReview] = useState(false);
@@ -213,13 +228,33 @@ export default function VoiceTrainingFlow({
   const [showKeyboardFallback, setShowKeyboardFallback] = useState<boolean>(false);
   const [micPermissionDenied, setMicPermissionDenied] = useState<boolean>(false);
 
+  const isListeningRef = useRef(isListening);
+  const isPausedRef = useRef(isPaused);
+  const isLoadingRef = useRef(isLoading);
+  const stepRef = useRef(step);
+  const turnDetectorRef = useRef<TurnDetector | null>(null);
+  const handleSubmitAnswerRef = useRef<() => void>(() => {});
+
+  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+  useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
+  useEffect(() => { stepRef.current = step; }, [step]);
+  useEffect(() => {
+    turnDetectorRef.current = new TurnDetector({
+      silenceThreshold: 10,
+      silenceDurationThresholdMs: 1500, // 1.5 seconds pause
+      minSpeechDurationMs: 1000,
+      volumeVarianceThreshold: 2.0
+    });
+  }, []);
+
   // Initialize microphone volume tracking & fallback simulation
   useEffect(() => {
     let animationId: number;
     let fallbackTimer: any;
     
     const initMicAnalysis = async () => {
-      if (step !== 'active' || isPaused || isLoading) {
+      if (step !== 'active') {
         cleanupMicAnalysis();
         return;
       }
@@ -257,15 +292,38 @@ export default function VoiceTrainingFlow({
         
         const updateLevel = () => {
           if (!analyserNodeRef.current) return;
-          analyserNodeRef.current.getByteFrequencyData(dataArray);
           
-          let sum = 0;
-          for (let i = 0; i < dataArray.length; i++) {
-            sum += dataArray[i];
+          let level = 0;
+          // Check if we should actively read from the microphone
+          const isCurrentlyActive = (
+            stepRef.current === 'active' && 
+            !isPausedRef.current && 
+            !isLoadingRef.current && 
+            isListeningRef.current
+          );
+
+          if (isCurrentlyActive) {
+            try {
+              analyserNodeRef.current.getByteFrequencyData(dataArray);
+              let sum = 0;
+              for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+              }
+              const average = sum / dataArray.length;
+              level = Math.min(100, Math.round((average / 128) * 100));
+
+              // Feed to our TurnDetector
+              if (turnDetectorRef.current) {
+                const shouldTransition = turnDetectorRef.current.feedVolumeSample(level);
+                if (shouldTransition) {
+                  console.log("[VoiceTrainingFlow] Silence-based Turn-Detection triggered. Submitting answer...");
+                  handleSubmitAnswerRef.current?.();
+                }
+              }
+            } catch (e) {
+              console.warn("[VoiceTrainingFlow] Failed to get frequency data:", e);
+            }
           }
-          const average = sum / dataArray.length;
-          // Scale to a nice range for wave display (0 to 100)
-          const level = Math.min(100, Math.round((average / 128) * 100));
           
           setMicVolume(level);
           setVolumeHistory(prev => {
@@ -278,8 +336,8 @@ export default function VoiceTrainingFlow({
         
         updateLevel();
       } catch (err) {
-        console.error("Direct microphone analysis failed or permission denied:", err);
-        setMicPermissionDenied(true);
+        console.warn("Direct microphone analysis failed or permission denied. Falling back to simulated audio waveform feedback:", err);
+        startSimulatedFeedback();
       }
     };
 
@@ -291,7 +349,12 @@ export default function VoiceTrainingFlow({
       const simulate = () => {
         angle += 0.15;
         // If listening, generate speech waveform ripples. Otherwise, stay flat/minimal.
-        const isActiveState = (step === 'active' && isListening && !isPaused && !isLoading);
+        const isActiveState = (
+          stepRef.current === 'active' && 
+          isListeningRef.current && 
+          !isPausedRef.current && 
+          !isLoadingRef.current
+        );
         const base = isActiveState ? 15 : 2;
         const noise = isActiveState ? Math.abs(Math.sin(angle) * 30 + Math.cos(angle * 2.3) * 12) : 0;
         const finalVal = Math.round(base + noise);
@@ -307,7 +370,7 @@ export default function VoiceTrainingFlow({
       simulate();
     };
     
-    if (step === 'active' && !isPaused && !isLoading) {
+    if (step === 'active') {
       initMicAnalysis();
     } else {
       cleanupMicAnalysis();
@@ -315,11 +378,14 @@ export default function VoiceTrainingFlow({
     }
     
     return () => {
-      cleanupMicAnalysis();
       if (animationId) cancelAnimationFrame(animationId);
       if (fallbackTimer) clearTimeout(fallbackTimer);
+      // Clean up when leaving 'active' step or unmounting
+      if (stepRef.current !== 'active') {
+        cleanupMicAnalysis();
+      }
     };
-  }, [step, isPaused, isLoading, isListening]);
+  }, [step]);
 
   const cleanupMicAnalysis = () => {
     if (microphoneStreamRef.current) {
@@ -424,14 +490,17 @@ export default function VoiceTrainingFlow({
 
   // Web Speech synthesis / OpenAI TTS (speak SHANA's question)
   const speakText = (text: string) => {
-    if (isMuted) return;
-    
-    // 1. Cancel any active local speech synthesis or audio playbacks
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+    if (isMuted) {
+      isUtteredRef.current = false;
+      if (!isPaused && step === 'active') {
+        startListening();
+      }
+      return;
     }
+    
+    // 1. Cancel any active local speech synthesis or audio playbacks via InterviewVoiceManager
+    InterviewVoiceManager.stopAllActiveOutputs();
     if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
       currentAudioRef.current = null;
     }
 
@@ -443,66 +512,63 @@ export default function VoiceTrainingFlow({
 
     if (!cleanedText) return;
 
+    if (!InterviewVoiceManager.isAllowed('VOICE_TRAINING')) {
+      console.warn("[VoiceTrainingFlow] Speech blocked because we do not own the voice lock.");
+      return;
+    }
+
     isUtteredRef.current = true;
 
     // 2. Play using OpenAI TTS via HTML5 Audio with fallback to local synthesis
     const audioUrl = `/api/interview/speak?text=${encodeURIComponent(cleanedText)}`;
-    const audio = new Audio(audioUrl);
-    currentAudioRef.current = audio;
-
+    
     let fallbackTriggered = false;
     const triggerFallback = (reason: string) => {
       if (fallbackTriggered) return;
       fallbackTriggered = true;
       console.warn(`[SHANA Client] ${reason}. Falling back to local SpeechSynthesis.`);
       
-      try {
-        audio.pause();
-        audio.src = "";
-      } catch (err) {}
-      
-      if (currentAudioRef.current === audio) {
+      InterviewVoiceManager.stopAllActiveOutputs();
+      if (currentAudioRef.current) {
         currentAudioRef.current = null;
       }
       fallbackSpeakLocal(cleanedText);
     };
 
-    // Fail safe timeout: If audio does not start playing within 2000ms, fallback immediately
-    const playTimeout = setTimeout(() => {
-      triggerFallback("Audio playback timeout (2.0s)");
-    }, 2000);
-
-    audio.onplay = () => {
-      clearTimeout(playTimeout);
-    };
-
-    audio.onplaying = () => {
-      clearTimeout(playTimeout);
-    };
-
-    audio.onended = () => {
-      clearTimeout(playTimeout);
-      if (fallbackTriggered) return;
-      isUtteredRef.current = false;
-      currentAudioRef.current = null;
-      if (!isPaused && step === 'active') {
-        startListening();
+    const audio = InterviewVoiceManager.playServerAudio(
+      audioUrl,
+      'VOICE_TRAINING',
+      () => {
+        if (fallbackTriggered) return;
+        isUtteredRef.current = false;
+        currentAudioRef.current = null;
+        if (!isPaused && step === 'active') {
+          startListening();
+        }
+      },
+      (err) => {
+        triggerFallback("OpenAI TTS stream error");
       }
-    };
+    );
 
-    audio.onerror = (e) => {
-      clearTimeout(playTimeout);
-      triggerFallback("OpenAI TTS stream error");
-    };
+    if (audio) {
+      currentAudioRef.current = audio;
 
-    audio.play()
-      .then(() => {
+      // Fail safe timeout: If audio does not start playing within 2000ms, fallback immediately
+      const playTimeout = setTimeout(() => {
+        triggerFallback("Audio playback timeout (2.0s)");
+      }, 2000);
+
+      audio.onplay = () => {
         clearTimeout(playTimeout);
-      })
-      .catch((err) => {
+      };
+
+      audio.onplaying = () => {
         clearTimeout(playTimeout);
-        triggerFallback(`Audio play rejected: ${err?.message || err}`);
-      });
+      };
+    } else {
+      triggerFallback("Failed to initiate audio object");
+    }
   };
 
   const fallbackSpeakLocal = (cleanedText: string) => {
@@ -530,62 +596,118 @@ export default function VoiceTrainingFlow({
 
     window.speechSynthesis?.cancel(); // stop SHANA if user interrupts speaking
     
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setIsListening(true);
-      return; // fallback input will handle submissions
-    }
+    // Reset our silence-based Turn-Detector
+    turnDetectorRef.current?.reset();
+    
+    // 1. Clear any old audio chunks
+    audioChunksRef.current = [];
 
-    // Stop current recognition if alive
-    if (recognitionRef.current) {
+    // 2. Start recording real audio using MediaRecorder if stream is available
+    if (microphoneStreamRef.current) {
       try {
-        recognitionRef.current.stop();
-      } catch (e) {}
+        const options = { mimeType: 'audio/webm' };
+        let recorder: MediaRecorder;
+        try {
+          recorder = new MediaRecorder(microphoneStreamRef.current, options);
+        } catch (e) {
+          recorder = new MediaRecorder(microphoneStreamRef.current);
+        }
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+            audioChunksRef.current.push(e.data);
+          }
+        };
+
+        mediaRecorderRef.current = recorder;
+        recorder.start(250); // Record in 250ms chunks
+        console.log("[VoiceTrainingFlow] MediaRecorder started successfully.");
+      } catch (err) {
+        console.error("[VoiceTrainingFlow] MediaRecorder initialization failed:", err);
+      }
     }
 
-    const rec = new SpeechRecognition();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = currentProfile.language === 'French' ? 'fr-FR' : 'en-US';
+    // 3. Set listening state
+    setIsListening(true);
+    setApiError(null);
 
-    rec.onstart = () => {
-      setIsListening(true);
-      setApiError(null);
-    };
-
-    rec.onresult = (event: any) => {
-      let interimTranscript = '';
-      let finalTranscript = '';
-
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
-        } else {
-          interimTranscript += event.results[i][0].transcript;
-        }
+    // 4. Start Web Speech as a live, streaming on-screen text feedback helper
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      // Stop current recognition if alive
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
       }
 
-      // Buffer input - DO NOT display full live transcript text on screen according to session rules
-      const voiceResult = finalTranscript || interimTranscript;
-      setUserInput(voiceResult);
-    };
+      const rec = new SpeechRecognition();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.lang = currentProfile.language === 'French' ? 'fr-FR' : 'en-US';
 
-    rec.onerror = (event: any) => {
-      console.warn("Speech recognition error:", event.error);
-    };
+      rec.onstart = () => {
+        setApiError(null);
+      };
 
-    rec.onend = () => {
-      setIsListening(false);
-    };
+      rec.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
 
-    recognitionRef.current = rec;
-    rec.start();
+        for (let i = 0; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+
+        const voiceResult = finalTranscript + interimTranscript;
+        setUserInput(voiceResult);
+        
+        // If candidate spoke anything, let the TurnDetector know immediately
+        if (voiceResult.trim().length > 0) {
+          turnDetectorRef.current?.setHasSpoken(true);
+        }
+      };
+
+      rec.onerror = (event: any) => {
+        console.warn("[VoiceTrainingFlow] Speech recognition error:", event.error);
+      };
+
+      rec.onend = () => {
+        // Auto-restart WebSpeech if we are still active, recording, and not paused
+        if (
+          !isPaused && 
+          !isLoading && 
+          step === 'active' && 
+          mediaRecorderRef.current && 
+          mediaRecorderRef.current.state === 'recording'
+        ) {
+          try {
+            rec.start();
+            console.log("[VoiceTrainingFlow] Auto-restarted WebSpeech helper after silence end.");
+          } catch (e) {}
+        }
+      };
+
+      recognitionRef.current = rec;
+      try {
+        rec.start();
+      } catch (e) {}
+    }
   };
 
   const stopListening = () => {
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
+      } catch (e) {}
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+        console.log("[VoiceTrainingFlow] MediaRecorder stopped.");
       } catch (e) {}
     }
     setIsListening(false);
@@ -655,19 +777,92 @@ export default function VoiceTrainingFlow({
   // Submit Answer (Proceeding through Step 2)
   const handleSubmitAnswer = async () => {
     if (isLoading) return;
-    stopListening();
+
+    // First stop speech recognition & media recorder
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+    }
+
+    let activeRecorder = mediaRecorderRef.current;
+    if (activeRecorder && activeRecorder.state !== 'inactive') {
+      const stopPromise = new Promise<void>((resolve) => {
+        if (activeRecorder) {
+          activeRecorder.onstop = () => {
+            resolve();
+          };
+          try {
+            activeRecorder.stop();
+          } catch (e) {
+            resolve();
+          }
+        } else {
+          resolve();
+        }
+      });
+      setIsLoading(true);
+      await stopPromise;
+    }
+
+    setIsListening(false);
 
     let answer = userInput.trim();
+
+    // 2. Transcribe voice using OpenAI Whisper if we recorded audio chunks
+    if (audioChunksRef.current && audioChunksRef.current.length > 0) {
+      setIsLoading(true);
+      setApiError(currentProfile.language === 'French'
+        ? "Analyse et transcription de votre voix par l'IA Whisper d'OpenAI..."
+        : "Analyzing and transcribing your voice with OpenAI Whisper AI...");
+      
+      try {
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const base64 = await blobToBase64(blob);
+
+        const payload = {
+          audio: base64,
+          filename: "live_recording.webm",
+          language: currentProfile.language === 'French' ? "French" : "English",
+          targetRole: currentProfile.targetRole,
+          industry: currentProfile.industry,
+          textFallback: answer || undefined
+        };
+
+        const response = await fetch('/api/analyze-audio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+          const json = await response.json();
+          if (json && json.transcript) {
+            const whisperText = json.transcript.trim();
+            // Ignore placeholders or empty speech messages
+            if (whisperText && !whisperText.includes("[No voice") && !whisperText.includes("[Aucun signal")) {
+              answer = whisperText;
+              console.log("[VoiceTrainingFlow] Successfully transcribed answer using OpenAI Whisper:", answer);
+            }
+          }
+        }
+      } catch (whisperErr) {
+        console.error("[VoiceTrainingFlow] Whisper transcription failed:", whisperErr);
+      }
+    }
+
     if (!answer) {
       if (!showKeyboardFallback) {
         setApiError(currentProfile.language === 'French'
           ? "Aucun signal vocal détecté. Si votre micro ne fonctionne pas dans ce navigateur, veuillez cliquer sur '⌨️ Saisir ma réponse par écrit' pour continuer par écrit."
           : "No speech detected. If your microphone is not working in this environment, please click '⌨️ Type response fallback' below to write your answer.");
+        setIsLoading(false);
         return;
       } else {
         setApiError(currentProfile.language === 'French'
           ? "Veuillez saisir votre réponse avant de valider."
           : "Please enter your response before submitting.");
+        setIsLoading(false);
         return;
       }
     }
@@ -729,6 +924,10 @@ export default function VoiceTrainingFlow({
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    handleSubmitAnswerRef.current = handleSubmitAnswer;
+  }, [handleSubmitAnswer]);
 
   // Replay voice question handle
   const handleReplay = () => {
@@ -918,22 +1117,22 @@ export default function VoiceTrainingFlow({
           {/* Back button */}
           <button 
             onClick={onBack}
-            className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[#6B7280] hover:text-[#1A2B3C] cursor-pointer transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-stone-700 hover:text-stone-950 hover:underline cursor-pointer transition-all"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
             <span>{isFrench ? "Tableau de Bord" : "Dashboard"}</span>
           </button>
 
           {/* Intro Card */}
-          <div className="bg-white border border-[#E5E7EB] rounded-[32px] p-6 md:p-8 space-y-6 shadow-sm">
+          <div className="bg-white border-[2.5px] border-stone-950 rounded-[28px] p-6 md:p-8 space-y-6 shadow-[5px_5px_0px_0px_#111111] hover:shadow-[7px_7px_0px_0px_#111111] hover:translate-x-[-1px] hover:translate-y-[-1px] transition-all">
             <div>
-              <span className="font-mono text-[9px] uppercase tracking-widest text-[#1A2B3C] font-semibold bg-[#1A2B3C]/5 px-2.5 py-1 rounded-md border border-[#1A2B3C]/10">
+              <span className="font-mono text-[9px] uppercase tracking-widest text-stone-950 font-black bg-stone-150 px-2.5 py-1 rounded-md border border-stone-950 shadow-[1px_1px_0px_0px_#111111]">
                 {isFrench ? "COACHING ACTIF" : "ACTIVE TRAINING MODE"}
               </span>
-              <h1 className="text-2xl md:text-3xl font-sans font-extrabold text-[#1A2B3C] tracking-tight mt-3">
+              <h1 className="text-2xl md:text-3xl font-sans font-black text-stone-950 tracking-tight mt-4">
                 {isFrench ? "Studio d’Entraînement Vocal" : "SHANA Voice Training"}
               </h1>
-              <p className="text-xs text-[#6B7280] mt-1 italic font-medium leading-relaxed">
+              <p className="text-xs text-stone-600 mt-1.5 italic font-bold leading-relaxed">
                 {isFrench 
                   ? "Améliorez votre structure d'expression orale à travers un dialogue adaptatif et bienveillant, calibré par l'IA."
                   : "Improve your oral interview mechanics through a highly adaptive, supportive, and safe coaching dialogue."}
@@ -941,13 +1140,13 @@ export default function VoiceTrainingFlow({
             </div>
 
             {/* Ingestion warning */}
-            <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl flex items-start gap-3">
+            <div className="p-4 bg-indigo-50 border-2 border-stone-950 rounded-2xl flex items-start gap-3 shadow-[2.5px_2.5px_0px_0px_#111111]">
               <Sparkles className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <span className="text-[10px] uppercase font-bold text-indigo-800 tracking-wider font-mono">
+                <span className="text-[10px] uppercase font-black text-indigo-900 tracking-wider font-mono">
                   {isFrench ? "REMARQUE SUR LE PROTOCOLE SHANA" : "SHANA DIRECTIVES"}
                 </span>
-                <p className="text-[11px] text-[#6B7280] leading-relaxed">
+                <p className="text-[11px] text-stone-700 font-bold leading-relaxed">
                   {isFrench 
                     ? "Ce mode est uniquement conçu pour le coaching vocal interactif. Aucun score éliminatoire ou pass/fail ne sera généré. La caméra et la transcription en direct sont désactivées."
                     : "This phase is strictly for high-yield voice training. No final hiring readiness score will be generated. Recording feeds, live transcripts, and evaluation widgets are locked."}
@@ -957,16 +1156,16 @@ export default function VoiceTrainingFlow({
 
             {/* Suggested Serendipity Experiment (MODE 1 — BEFORE INTERVIEW) */}
             {beforeSuggestion && (
-              <div className="p-4 bg-amber-50/50 border border-amber-200/60 rounded-2xl flex items-start gap-3">
+              <div className="p-4 bg-[#FFFDEE] border-2 border-stone-950 rounded-2xl flex items-start gap-3 shadow-[2.5px_2.5px_0px_0px_#111111]">
                 <span className="text-xl">💡</span>
                 <div className="space-y-1">
-                  <span className="text-[10px] uppercase font-bold text-amber-800 tracking-wider font-mono">
+                  <span className="text-[10px] uppercase font-black text-amber-900 tracking-wider font-mono">
                     {isFrench ? "DÉFI EXCLUSIF SUGGÉRÉ" : "SHANA RECOMMENDED EXPERIMENT"}
                   </span>
-                  <p className="text-xs font-bold text-stone-900 leading-relaxed">
+                  <p className="text-xs font-black text-stone-950 leading-relaxed">
                     {beforeSuggestion}
                   </p>
-                  <p className="text-[10px] text-stone-500 font-medium">
+                  <p className="text-[10px] text-stone-600 font-bold">
                     {isFrench 
                       ? "Ce conseil adaptatif est suggéré selon vos indicateurs comportementaux passés pour briser vos routines."
                       : "This adaptive coaching recommendation is triggered based on your historical behavior patterns."}
@@ -976,35 +1175,35 @@ export default function VoiceTrainingFlow({
             )}
 
             {/* Parameters list of Blueprint */}
-            <div className="border border-[#E5E7EB] p-5 rounded-3xl space-y-4">
-              <h3 className="text-xs font-mono font-bold uppercase tracking-widest text-[#1A2B3C] border-b border-[#F3F4F6] pb-2">
+            <div className="border-2 border-stone-950 p-5 rounded-3xl space-y-4 bg-stone-50 shadow-[3px_3px_0px_0px_#111111]">
+              <h3 className="text-xs font-mono font-black uppercase tracking-widest text-stone-950 border-b border-stone-250 pb-2">
                 {isFrench ? "Paramètres du Plan d’Entretien" : "Interview Blueprint Specifications"}
               </h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-[#F9FAFB] p-3 rounded-xl border border-[#E5E7EB]">
-                  <span className="text-[9px] font-mono uppercase text-[#9CA3AF] block font-bold">
+                <div className="bg-white p-3 rounded-xl border-2 border-stone-950 shadow-[1.5px_1.5px_0px_0px_#111111]">
+                  <span className="text-[9px] font-mono uppercase text-stone-500 block font-black">
                     {isFrench ? "Rôle Ciblé" : "Target Role"}
                   </span>
-                  <span className="text-xs font-bold text-[#1A2B3C] mt-1 block">
+                  <span className="text-xs font-black text-stone-950 mt-1 block">
                     {currentProfile.targetRole || "Professional Candidate"}
                   </span>
                 </div>
 
-                <div className="bg-[#F9FAFB] p-3 rounded-xl border border-[#E5E7EB]">
-                  <span className="text-[9px] font-mono uppercase text-[#9CA3AF] block font-bold">
+                <div className="bg-white p-3 rounded-xl border-2 border-stone-950 shadow-[1.5px_1.5px_0px_0px_#111111]">
+                  <span className="text-[9px] font-mono uppercase text-stone-500 block font-black">
                     {isFrench ? "Axe Majeur" : "Focus Area"}
                   </span>
-                  <span className="text-xs font-bold text-[#1A2B3C] mt-1 block truncate">
+                  <span className="text-xs font-black text-stone-950 mt-1 block truncate">
                     {blueprint?.primaryFocus || (isFrench ? "Communication Professionnelle" : "Professional Delivery")}
                   </span>
                 </div>
 
-                <div className="bg-[#F9FAFB] p-3 rounded-xl border border-[#E5E7EB]">
-                  <span className="text-[9px] font-mono uppercase text-[#9CA3AF] block font-bold">
+                <div className="bg-white p-3 rounded-xl border-2 border-stone-950 shadow-[1.5px_1.5px_0px_0px_#111111]">
+                  <span className="text-[9px] font-mono uppercase text-stone-500 block font-black">
                     {isFrench ? "Durée Session" : "Duration Strategy"}
                   </span>
-                  <span className="text-xs font-bold text-[#1A2B3C] mt-1 block text-indigo-600">
+                  <span className="text-xs font-black text-stone-950 mt-1 block text-indigo-700">
                     5 Questions (~10m)
                   </span>
                 </div>
@@ -1012,19 +1211,19 @@ export default function VoiceTrainingFlow({
             </div>
 
             {!hasAudioCredits ? (
-              <div className="p-5 border-2 border-dashed border-indigo-200 bg-indigo-50/10 rounded-[24px] space-y-4 text-left animate-fade-in" id="training-credits-locked-card">
+              <div className="p-5 border-2 border-dashed border-stone-950 bg-indigo-50/20 rounded-[24px] space-y-4 text-left animate-fade-in" id="training-credits-locked-card">
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center shrink-0 shadow-inner">
+                  <div className="w-10 h-10 bg-white border-2 border-stone-950 text-stone-950 rounded-xl flex items-center justify-center shrink-0 shadow-[2px_2px_0px_0px_#111111]">
                     <LockKeyhole className="w-5 h-5" />
                   </div>
                   <div>
-                    <span className="font-mono text-[9px] uppercase tracking-widest bg-indigo-100 border border-indigo-200 text-indigo-800 px-2.5 py-0.5 rounded font-bold">
+                    <span className="font-mono text-[9px] uppercase tracking-widest bg-amber-200 border-2 border-stone-950 text-stone-950 px-2.5 py-0.5 rounded font-black shadow-[1px_1px_0px_0px_#111111]">
                       {isFrench ? "CRÉDITS ÉPUISÉS" : "PRACTICE LIMIT LOCKED"}
                     </span>
-                    <h3 className="text-sm font-bold text-[#1A2B3C] mt-1">
+                    <h3 className="text-sm font-black text-stone-950 mt-2">
                       {isFrench ? "Plus d'heures d'entraînement vocal" : "Out of prepaid practice credits"}
                     </h3>
-                    <p className="text-[11px] text-[#6B7280] font-medium leading-relaxed mt-0.5">
+                    <p className="text-[11px] text-stone-600 font-bold leading-relaxed mt-0.5">
                       {isFrench 
                         ? "Veuillez vous abonner à Ultra Illimité ou recharger votre solde de sessions à la carte pour continuer à vous entraîner."
                         : "To continue practicing adaptive oral interview delivery, subscribe to Ultra Unlimited or top-up individual sessions."}
@@ -1032,12 +1231,12 @@ export default function VoiceTrainingFlow({
                   </div>
                 </div>
 
-                <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Starter Pack Option */}
-                  <div className="bg-white border border-[#E5E7EB] p-3.5 rounded-xl flex flex-col justify-between">
+                  <div className="bg-white border-2 border-stone-950 p-4 rounded-xl flex flex-col justify-between shadow-[3px_3px_0px_0px_#111111]">
                     <div>
-                      <span className="text-[10px] font-bold text-[#1A2B3C] block uppercase tracking-wider">{isFrench ? "Pack Starter" : "Starter Pack"}</span>
-                      <span className="text-xs font-medium text-[#6B7280] block mt-1 leading-relaxed">
+                      <span className="text-[10px] font-black text-stone-950 block uppercase tracking-wider">{isFrench ? "Pack Starter" : "Starter Pack"}</span>
+                      <span className="text-xs font-bold text-stone-600 block mt-1 leading-relaxed">
                         {isFrench ? "3 Sessions d’Entraînement" : "3 Audio coaching sessions"}
                       </span>
                     </div>
@@ -1045,17 +1244,17 @@ export default function VoiceTrainingFlow({
                       type="button"
                       id="training-buy-starter-btn"
                       onClick={() => setSelectedProductForCheckout('pack_starter')}
-                      className="mt-3 w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] uppercase tracking-wider rounded-lg cursor-pointer text-center"
+                      className="mt-4 w-full py-2.5 bg-[#EDC154] hover:bg-[#ffdf7e] text-stone-950 font-black border-2 border-stone-950 text-[10px] uppercase tracking-wider rounded-lg shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[0.5px_0.5px_0px_0px_rgba(17,17,17,1)] transition-all cursor-pointer text-center"
                     >
                       {isFrench ? "Acheter • 3.99€" : "Buy • 3.99€"}
                     </button>
                   </div>
 
                   {/* Top Up 1 Session Option */}
-                  <div className="bg-white border border-[#E5E7EB] p-3.5 rounded-xl flex flex-col justify-between">
+                  <div className="bg-white border-2 border-stone-950 p-4 rounded-xl flex flex-col justify-between shadow-[3px_3px_0px_0px_#111111]">
                     <div>
-                      <span className="text-[10px] font-bold text-[#1A2B3C] block uppercase tracking-wider">{isFrench ? "Recharge unitaire" : "Single Top-Up"}</span>
-                      <span className="text-xs font-medium text-[#6B7280] block mt-1 leading-relaxed">
+                      <span className="text-[10px] font-black text-stone-950 block uppercase tracking-wider">{isFrench ? "Recharge unitaire" : "Single Top-Up"}</span>
+                      <span className="text-xs font-bold text-stone-600 block mt-1 leading-relaxed">
                         {isFrench ? "+1 Session d'Entraînement" : "+1 Audio coaching session"}
                       </span>
                     </div>
@@ -1063,7 +1262,7 @@ export default function VoiceTrainingFlow({
                       type="button"
                       id="training-buy-topup-btn"
                       onClick={() => setSelectedProductForCheckout('topup_1_audio')}
-                      className="mt-3 w-full py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] uppercase tracking-wider rounded-lg cursor-pointer text-center"
+                      className="mt-4 w-full py-2.5 bg-white hover:bg-stone-50 text-stone-950 font-black border-2 border-stone-950 text-[10px] uppercase tracking-wider rounded-lg shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[0.5px_0.5px_0px_0px_rgba(17,17,17,1)] transition-all cursor-pointer text-center"
                     >
                       {isFrench ? "Acheter • 1.49€" : "Buy • 1.49€"}
                     </button>
@@ -1071,33 +1270,33 @@ export default function VoiceTrainingFlow({
                 </div>
               </div>
             ) : hasResumeableSession && resumeData ? (
-              <div className="p-5 bg-amber-50 border border-amber-200 rounded-3xl space-y-4 animate-fade-in">
+              <div className="p-5 bg-[#FFFDEE] border-2 border-stone-950 rounded-3xl space-y-4 animate-fade-in shadow-[4px_4px_0px_0px_#111111]">
                 <div className="flex items-start gap-3">
                   <Flame className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   <div className="space-y-1">
-                    <span className="text-[10px] uppercase font-bold text-amber-800 tracking-wider font-mono">
+                    <span className="text-[10px] uppercase font-black text-amber-900 tracking-wider font-mono">
                       {isFrench ? "SESSION EN COURS DÉTECTÉE" : "ACTIVE SESSION DETECTED"}
                     </span>
-                    <p className="text-xs text-amber-950 leading-relaxed font-semibold">
+                    <p className="text-xs text-stone-950 leading-relaxed font-black">
                       {isFrench 
                         ? `Vous avez quitté une session d'entraînement à la question ${resumeData.currentQuestionIndex}/${totalQuestions} (${formatSeconds(resumeData.secondsElapsed)}).`
                         : `You have an active voice training session at question ${resumeData.currentQuestionIndex}/${totalQuestions} (${formatSeconds(resumeData.secondsElapsed)}).`}
                     </p>
                   </div>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                <div className="flex flex-col sm:flex-row gap-4 pt-1">
                   <button
                     id="resume-training-btn"
                     onClick={handleResumeSession}
-                    className="flex-grow py-3.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+                    className="flex-grow py-3.5 bg-[#EDC154] hover:bg-[#ffdf7e] text-stone-950 font-black text-xs uppercase tracking-widest rounded-xl border-2 border-stone-950 shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1.5px] active:translate-y-[1.5px] active:shadow-[1px_1px_0px_0px_rgba(17,17,17,1)] transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <Play className="w-3.5 h-3.5 fill-white text-white" />
+                    <Play className="w-3.5 h-3.5 fill-stone-950 text-stone-950" />
                     <span>{isFrench ? "Reprendre la session" : "Resume Session"}</span>
                   </button>
                   <button
                     id="start-fresh-btn"
                     onClick={handleStartFresh}
-                    className="py-3.5 px-6 border border-amber-200 text-amber-800 hover:bg-amber-100/50 font-bold text-xs uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    className="py-3.5 px-6 bg-white hover:bg-stone-50 text-stone-950 border-2 border-stone-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1.5px] active:translate-y-[1.5px] active:shadow-[1px_1px_0px_0px_rgba(17,17,17,1)] transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>{isFrench ? "Recommencer à zéro" : "Start Fresh"}</span>
@@ -1109,9 +1308,9 @@ export default function VoiceTrainingFlow({
               <button
                 id="begin-training-btn"
                 onClick={handleBegin}
-                className="w-full py-4 bg-[#1A2B3C] hover:bg-[#2C3E50] text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-md mt-2 flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-4 bg-[#EDC154] hover:bg-[#ffdf7e] text-stone-950 font-black text-xs uppercase tracking-widest rounded-xl border-2 border-stone-950 shadow-[4px_4px_0px_0px_rgba(17,17,17,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_rgba(17,17,17,1)] transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <Play className="w-3.5 h-3.5 fill-white text-white" />
+                <Play className="w-3.5 h-3.5 fill-stone-950 text-stone-950" />
                 <span>{isFrench ? "Commencer la session de coaching" : "Begin Training Session"}</span>
               </button>
             )}
@@ -1124,22 +1323,22 @@ export default function VoiceTrainingFlow({
         <div className="max-w-2xl mx-auto space-y-10 py-6 px-4 animate-fade-in">
           
           {/* Subtle Minimalist Header Line */}
-          <div className="flex justify-between items-center text-[#9CA3AF] text-[10px] font-mono tracking-widest uppercase pb-2 border-b border-zinc-150">
+          <div className="flex justify-between items-center text-[#9CA3AF] text-[10px] font-mono tracking-widest uppercase pb-2 border-b-2 border-stone-950">
             {/* Minimalist Step indicators */}
             <div className="flex items-center gap-2">
-              <span className="font-bold text-zinc-500">
+              <span className="font-black text-stone-950">
                 {isFrench ? "ENTRAÎNEMENT" : "TRAINING"}
               </span>
-              <div className="flex gap-1 items-center ml-2">
+              <div className="flex gap-1.5 items-center ml-2">
                 {Array.from({ length: totalQuestions }).map((_, i) => (
                   <span 
                     key={i} 
-                    className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+                    className={`w-2 h-2 rounded-full transition-all duration-300 border border-stone-950 ${
                       i + 1 === currentQuestionIndex 
-                        ? 'bg-zinc-800 scale-125' 
+                        ? 'bg-stone-950 scale-125' 
                         : i + 1 < currentQuestionIndex 
-                          ? 'bg-zinc-350' 
-                          : 'bg-zinc-200'
+                          ? 'bg-stone-400' 
+                          : 'bg-white'
                     }`} 
                   />
                 ))}
@@ -1147,7 +1346,7 @@ export default function VoiceTrainingFlow({
             </div>
 
             {/* Time indicator */}
-            <div className="font-bold bg-zinc-100 text-zinc-650 px-2.5 py-0.5 rounded text-[11px]">
+            <div className="font-mono font-bold bg-[#EDC154] border-2 border-stone-950 text-stone-950 px-2.5 py-0.5 rounded-lg shadow-[1.5px_1.5px_0px_0px_#111111] text-[11px]">
               {formatSeconds(secondsElapsed)}
             </div>
 
@@ -1158,22 +1357,22 @@ export default function VoiceTrainingFlow({
                   onBack();
                 }
               }}
-              className="hover:text-red-600 transition-colors cursor-pointer font-bold lowercase tracking-normal border-none bg-transparent text-[11px]"
+              className="px-3.5 py-1 bg-[#FF7E5F] border-2 border-stone-950 text-stone-950 font-black uppercase tracking-wider rounded-lg shadow-[2px_2px_0px_0px_#111111] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0px_0px_#111111] transition-all text-[9px] cursor-pointer"
             >
               {isFrench ? "quitter" : "abort"}
             </button>
           </div>
 
           {micPermissionDenied ? (
-            <div className="bg-red-50/50 border border-red-100 rounded-3xl p-8 md:p-12 text-center space-y-6 max-w-xl mx-auto py-12 animate-fade-in shadow-sm my-10" id="mic-blocker">
-              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto text-red-600 animate-pulse">
+            <div className="bg-[#FF7E5F]/10 border-2 border-stone-950 rounded-3xl p-8 md:p-12 text-center space-y-6 max-w-xl mx-auto py-12 animate-fade-in shadow-[4px_4px_0px_0px_#111111] my-10" id="mic-blocker">
+              <div className="w-16 h-16 bg-[#FF7E5F]/20 rounded-full border-2 border-stone-950 flex items-center justify-center mx-auto text-stone-950">
                 <MicOff className="w-8 h-8" />
               </div>
               <div className="space-y-3">
-                <h3 className="text-base font-bold text-zinc-900 tracking-tight uppercase font-mono">
+                <h3 className="text-base font-black text-stone-950 tracking-tight uppercase font-mono">
                   {isFrench ? "Accès microphone obligatoire" : "Microphone Access Required"}
                 </h3>
-                <p className="text-sm text-zinc-650 leading-relaxed max-w-md mx-auto font-sans">
+                <p className="text-sm text-stone-700 leading-relaxed max-w-md mx-auto font-sans font-bold">
                   {isFrench 
                     ? "SHANA est un coach de préparation d'entretien d'embauche 100% interactif à la voix. Pour vous entraîner et lui parler, vous devez impérativement autoriser l'accès au microphone dans votre navigateur." 
                     : "SHANA is a 100% interactive voice-first interview coach. To practice and speak with her, you must authorize microphone access in your browser."}
@@ -1196,15 +1395,26 @@ export default function VoiceTrainingFlow({
                         : "Microphone access is still blocked. Please enable it in your browser settings.");
                     }
                   }}
-                  className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-sm cursor-pointer border-none"
+                  className="px-6 py-3 bg-[#EDC154] hover:bg-[#ffdf7e] text-stone-950 border-2 border-stone-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] transition-all cursor-pointer"
                 >
                   {isFrench ? "Autoriser le micro & Réessayer" : "Allow Mic & Retry"}
                 </button>
                 <button
                   type="button"
+                  id="mic-keyboard-bypass"
+                  onClick={() => {
+                    setMicPermissionDenied(false);
+                    setShowKeyboardFallback(true);
+                  }}
+                  className="px-6 py-3 bg-white hover:bg-stone-50 text-stone-950 border-2 border-stone-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] transition-all cursor-pointer"
+                >
+                  {isFrench ? "Continuer par Écrit" : "Bypass & Type Response"}
+                </button>
+                <button
+                  type="button"
                   id="mic-abort-btn"
                   onClick={() => onBack()}
-                  className="px-6 py-3 border border-zinc-200 text-zinc-700 hover:bg-zinc-50 font-bold text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer bg-white"
+                  className="px-6 py-3 bg-[#FF7E5F] text-stone-950 border-2 border-stone-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] transition-all cursor-pointer"
                 >
                   {isFrench ? "Quitter" : "Go Back"}
                 </button>
@@ -1213,24 +1423,24 @@ export default function VoiceTrainingFlow({
           ) : (
             <>
               {/* Central Zen Arena */}
-              <div className="bg-transparent text-zinc-900 py-6 md:py-10 flex flex-col items-center justify-center space-y-12 relative">
+              <div className="bg-transparent text-stone-950 py-6 md:py-10 flex flex-col items-center justify-center space-y-12 relative">
             
             {/* Prompt/Question Card - Highly refined display typography with generous breathing room */}
             <div className="text-center space-y-6 max-w-xl mx-auto">
               {isLoading ? (
                 <div className="h-24 flex flex-col items-center justify-center space-y-3">
-                  <Loader2 className="w-5 h-5 text-zinc-400 animate-spin" />
-                  <p className="text-[11px] font-mono uppercase tracking-widest text-zinc-400 animate-pulse font-bold">
+                  <Loader2 className="w-5 h-5 text-stone-950 animate-spin" />
+                  <p className="text-[11px] font-mono uppercase tracking-widest text-stone-950 animate-pulse font-black">
                     {isFrench ? "Shana formule la suite..." : "Shana is preparing prompt..."}
                   </p>
                 </div>
               ) : (
                 <div className="space-y-4 animate-fade-in">
-                  <span className="text-[9px] font-mono uppercase tracking-widest text-indigo-600 bg-indigo-50/80 px-2.5 py-0.5 rounded border border-indigo-100/60 font-bold">
+                  <span className="text-[9px] font-mono uppercase tracking-widest text-stone-950 bg-white px-2.5 py-1 rounded border-2 border-stone-950 shadow-[1.5px_1.5px_0px_0px_#111111] font-black">
                     {isListening && !isPaused ? (isFrench ? "À VOUS DE PARLER" : "YOUR TURN") : (isFrench ? "ÉCOUTE DE LA QUESTION" : "LISTENING")}
                   </span>
                   
-                  <p className="text-base md:text-lg font-sans font-medium text-zinc-800 leading-relaxed tracking-tight px-4 md:px-0">
+                  <p className="text-base md:text-lg font-sans font-black text-stone-900 leading-relaxed tracking-tight px-4 md:px-0">
                     {currentQuestion || (isFrench ? "Initialisation du coaching..." : "Initializing coaching conversation...")}
                   </p>
                 </div>
@@ -1244,15 +1454,21 @@ export default function VoiceTrainingFlow({
                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                  className="mx-auto max-w-sm p-3 bg-amber-50 border border-amber-200 shadow-sm rounded-xl flex items-center gap-2.5"
+                  className="mx-auto max-w-sm p-4 bg-[#EDC154] border-2 border-stone-950 shadow-[4px_4px_0px_0px_#111111] rounded-2xl flex items-center gap-2.5 transition-all"
                 >
                   <span className="text-lg">💡</span>
                   <div className="text-left">
-                    <span className="text-[9px] font-mono font-extrabold text-amber-800 uppercase tracking-wider block">
+                    <span className="text-[9px] font-mono font-black text-stone-950 uppercase tracking-wider block">
                       {isFrench ? "MICRO-CONSEIL SHANA" : "SHANA LIVE NUDGE"}
                     </span>
-                    <p className="text-[11px] font-bold text-stone-950 mt-0.5 leading-snug">
-                      {liveHint}
+                    <p className="text-[11px] font-black text-stone-950 mt-0.5 leading-snug">
+                      {isFrench ? (
+                        liveHint === "Try letting the recruiter finish speaking, then answer." ? "Laissez le recruteur finir de parler avant de répondre." :
+                        liveHint === "Try answering directly to improve your conciseness score." ? "Répondez plus directement pour améliorer votre score de concision." :
+                        liveHint === "Try using a single structural example to get started." ? "Utilisez un seul exemple structuré pour commencer." :
+                        liveHint === "Try taking a slight breath to reduce verbal fillers." ? "Respirez calmement pour réduire les tics de langage." :
+                        liveHint
+                      ) : liveHint}
                     </p>
                   </div>
                 </motion.div>
@@ -1263,7 +1479,7 @@ export default function VoiceTrainingFlow({
             <div className="flex flex-col items-center justify-center space-y-5 w-full py-4">
               
               {/* Dynamic waveform based on real mic volume history or simulated feedback */}
-              <div className="flex items-center justify-center gap-1 h-14 w-full max-w-md px-10">
+              <div className="flex items-center justify-center gap-1.5 h-14 w-full max-w-md px-10">
                 {volumeHistory.map((vol, index) => {
                   // Center-aligned vertical bars for actual vocal dynamic wave effect
                   const barHeight = Math.max(3, (vol / 100) * 52);
@@ -1276,8 +1492,8 @@ export default function VoiceTrainingFlow({
                       key={index}
                       className={`w-1 rounded-full transition-colors duration-300 ${
                         isListening && !isPaused && !isLoading
-                          ? 'bg-indigo-600'
-                          : 'bg-zinc-400'
+                          ? 'bg-stone-950'
+                          : 'bg-stone-400'
                       }`}
                       animate={{ height: barHeight }}
                       style={{ opacity }}
@@ -1289,45 +1505,102 @@ export default function VoiceTrainingFlow({
 
               {/* Minimalist Subtext State Indicator */}
               <div className="text-center">
-                <p className="text-[9px] font-mono uppercase tracking-widest text-zinc-400 font-extrabold flex items-center justify-center gap-1.5">
+                <p className="text-[9px] font-mono uppercase tracking-widest text-stone-500 font-black flex items-center justify-center gap-1.5">
                   {isListening && !isPaused && !isLoading ? (
                     <>
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-zinc-500">{isFrench ? "MICROPHONE ACTIF • ENREGISTREMENT EN COURS" : "MICROPHONE ACTIVE • RECORDING"}</span>
+                      <span className="text-stone-700">{isFrench ? "MICROPHONE ACTIF • ENREGISTREMENT EN COURS" : "MICROPHONE ACTIVE • RECORDING"}</span>
                     </>
                   ) : isPaused ? (
                     <span>{isFrench ? "COACHING EN PAUSE" : "TRAINING PAUSED"}</span>
                   ) : isLoading ? (
                     <span>{isFrench ? "FORMULATION DE LA QUESTION" : "PREPARING QUESTION"}</span>
                   ) : (
-                    <span>{isFrench ? "DIFFUSION AUDIO DE SHANA" : "SHANA BROADCAST ACTIVE"}</span>
+                    <span className="flex flex-col items-center gap-2">
+                      <span className="text-stone-500">{isFrench ? "DIFFUSION AUDIO DE SHANA" : "SHANA BROADCAST ACTIVE"}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          InterviewVoiceManager.stopAllActiveOutputs();
+                          if (currentAudioRef.current) {
+                            try {
+                              currentAudioRef.current.pause();
+                            } catch (e) {}
+                            currentAudioRef.current = null;
+                          }
+                          isUtteredRef.current = false;
+                          startListening();
+                        }}
+                        className="mt-2.5 px-4 py-2 bg-[#EDC154] hover:bg-[#ffdf7e] text-stone-950 font-black text-[10px] uppercase tracking-wider rounded-xl border-[1.5px] border-stone-950 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[0.5px_0.5px_0px_0px_rgba(17,17,17,1)] transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        <span>🎙️</span>
+                        <span>{isFrench ? "Parler maintenant" : "Speak Now"}</span>
+                      </button>
+                    </span>
                   )}
                 </p>
               </div>
             </div>
 
-            {/* Optional Keyboard Fallback Area - Hidden completely by default to avoid screen clutter */}
+            {/* Live Spoken Transcript Preview */}
+            {!showKeyboardFallback && (
+              <div className="w-full max-w-md mx-auto text-center space-y-2 px-4">
+                <span className="text-[9px] font-mono uppercase tracking-widest text-stone-500 font-black block">
+                  {isFrench ? "Votre réponse (dictée en direct)" : "Your response (live transcription)"}
+                </span>
+                <div className="min-h-[60px] w-full bg-white border-2 border-stone-950 rounded-2xl p-4 flex flex-col items-center justify-center text-xs text-stone-900 text-center shadow-[3px_3px_0px_0px_#111111]">
+                  {userInput.trim() ? (
+                    <span className="text-stone-950 font-bold block w-full break-words leading-relaxed">{userInput}</span>
+                  ) : (
+                    <div className="space-y-1 text-stone-500 font-bold">
+                      {isListening && !isPaused && !isLoading ? (
+                        <>
+                          <p className="font-black text-stone-950 flex items-center justify-center gap-1">🎙️ {isFrench ? "Enregistrement en cours..." : "Recording in progress..."}</p>
+                          <p className="text-[10px] text-stone-500 leading-relaxed font-bold">
+                            {isFrench 
+                              ? "Exprimez votre réponse à voix haute. L'IA Whisper d'OpenAI transcrira fidèlement vos propos au moment de valider." 
+                              : "Speak your answer aloud. OpenAI Whisper AI will transcribe your voice with high fidelity when you submit."}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-stone-400 italic font-black">
+                          {isFrench ? "En attente du signal..." : "Waiting for audio..."}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Optional Keyboard Fallback Area */}
             <div className="w-full max-w-md">
               {!showKeyboardFallback ? (
-                <div className="text-center">
+                <div className="text-center space-y-2">
                   <button
                     type="button"
                     onClick={() => setShowKeyboardFallback(true)}
-                    className="text-[10px] font-mono text-zinc-400 hover:text-indigo-600 tracking-wide underline cursor-pointer transition-colors bg-transparent border-none"
+                    className="w-full py-3.5 bg-white hover:bg-stone-50 text-stone-950 font-black text-xs uppercase tracking-wider rounded-xl border-2 border-stone-950 shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1.5px] active:translate-y-[1.5px] active:shadow-[1px_1px_0px_0px_rgba(17,17,17,1)] transition-all cursor-pointer flex items-center justify-center gap-2"
                   >
-                    {isFrench ? "⌨️ Saisir ma réponse par écrit" : "⌨️ Type response fallback"}
+                    <span>⌨️</span>
+                    <span>{isFrench ? "Saisir ma réponse par écrit / Clavier" : "Type my response / Keyboard"}</span>
                   </button>
+                  <p className="text-[10px] text-stone-500 font-mono font-bold">
+                    {isFrench 
+                      ? "Recommandé si le microphone ne fonctionne pas ou ne capture pas votre voix." 
+                      : "Recommended if your microphone is not working or not capturing your voice."}
+                  </p>
                 </div>
               ) : (
-                <div className="space-y-3 bg-zinc-50 p-4 rounded-2xl border border-zinc-200/60 animate-fade-in relative">
-                  <div className="flex justify-between items-center pb-1.5 border-b border-zinc-150">
-                    <span className="text-[9px] font-mono text-zinc-400 uppercase tracking-widest font-extrabold">
+                <div className="space-y-3 bg-white p-4 rounded-2xl border-2 border-stone-950 shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] animate-fade-in relative">
+                  <div className="flex justify-between items-center pb-2 border-b border-stone-200">
+                    <span className="text-[9px] font-mono text-stone-500 uppercase tracking-widest font-black">
                       {isFrench ? "Saisie manuscrite de secours" : "Typewritten Response Backup"}
                     </span>
                     <button
                       type="button"
                       onClick={() => setShowKeyboardFallback(false)}
-                      className="text-[9px] font-mono text-zinc-400 hover:text-red-500 cursor-pointer font-bold border-none bg-transparent"
+                      className="text-[9px] font-mono text-[#FF7E5F] hover:text-red-700 cursor-pointer font-black border-none bg-transparent"
                     >
                       {isFrench ? "Masquer" : "Hide"}
                     </button>
@@ -1341,13 +1614,13 @@ export default function VoiceTrainingFlow({
                       : "Type your response fallback here..."}
                     rows={2}
                     disabled={isPaused || isLoading}
-                    className="w-full bg-white border border-zinc-200 focus:border-zinc-350 focus:ring-1 focus:ring-zinc-200/50 rounded-xl px-3 py-2 text-xs outline-none text-zinc-800 placeholder-zinc-450 font-medium leading-relaxed resize-none"
+                    className="w-full bg-white border-2 border-stone-950 rounded-xl px-3 py-2.5 text-xs outline-none text-stone-900 placeholder-stone-400 font-bold leading-relaxed resize-none"
                   />
                 </div>
               )}
 
               {apiError && (
-                <div className="text-red-500 text-[10px] font-semibold text-center mt-3 italic animate-fade-in">
+                <div className="text-[#FF7E5F] text-[10px] font-black text-center mt-3 italic animate-fade-in leading-relaxed max-w-sm mx-auto">
                   {apiError}
                 </div>
               )}
@@ -1356,16 +1629,16 @@ export default function VoiceTrainingFlow({
           </div>
 
           {/* Subdued Elegant Action Controllers at Bottom */}
-          <div className="pt-5 border-t border-zinc-150 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="pt-5 border-t-2 border-stone-950 flex flex-col sm:flex-row items-center justify-between gap-4">
             
             {/* Left group of helper tools */}
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-center">
+            <div className="flex items-center gap-3 w-full sm:w-auto justify-center">
               {/* Voice Replay */}
               <button
                 type="button"
                 onClick={handleReplay}
                 disabled={isLoading || isPaused}
-                className="p-2.5 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 rounded-xl text-zinc-550 hover:text-zinc-800 transition-all disabled:opacity-30 cursor-pointer flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider font-mono"
+                className="p-3 bg-white hover:bg-stone-50 border-2 border-stone-950 rounded-xl text-stone-950 font-black text-[10px] uppercase tracking-wider transition-all disabled:opacity-30 cursor-pointer flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[0.5px_0.5px_0px_0px_rgba(17,17,17,1)]"
                 title={isFrench ? "Réécouter la question" : "Replay prompt"}
               >
                 <RotateCcw className="w-3.5 h-3.5" />
@@ -1377,16 +1650,16 @@ export default function VoiceTrainingFlow({
                 type="button"
                 onClick={handleTogglePause}
                 disabled={isLoading}
-                className="p-2.5 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 rounded-xl text-zinc-550 hover:text-zinc-800 transition-all disabled:opacity-30 cursor-pointer flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider font-mono"
+                className="p-3 bg-white hover:bg-stone-50 border-2 border-stone-950 rounded-xl text-stone-950 font-black text-[10px] uppercase tracking-wider transition-all disabled:opacity-30 cursor-pointer flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[0.5px_0.5px_0px_0px_rgba(17,17,17,1)]"
               >
                 {isPaused ? (
                   <>
-                    <Play className="w-3.5 h-3.5 text-emerald-600 fill-emerald-600/10" />
+                    <Play className="w-3.5 h-3.5 text-stone-950 fill-stone-950/10" />
                     <span>{isFrench ? "Reprendre" : "Resume"}</span>
                   </>
                 ) : (
                   <>
-                    <Pause className="w-3.5 h-3.5 text-amber-600" />
+                    <Pause className="w-3.5 h-3.5 text-stone-950" />
                     <span>{isFrench ? "Pause" : "Pause"}</span>
                   </>
                 )}
@@ -1399,10 +1672,10 @@ export default function VoiceTrainingFlow({
                   setIsMuted(prev => !prev);
                   if (!isMuted) window.speechSynthesis?.cancel();
                 }}
-                className={`p-2.5 border rounded-xl transition-all cursor-pointer flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider font-mono ${
+                className={`p-3 border-2 border-stone-950 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[0.5px_0.5px_0px_0px_rgba(17,17,17,1)] ${
                   isMuted 
-                    ? 'bg-red-50 border-red-200 text-red-600' 
-                    : 'bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-550 hover:text-zinc-800'
+                    ? 'bg-[#FF7E5F] text-stone-950' 
+                    : 'bg-white hover:bg-stone-50 text-stone-950'
                 }`}
               >
                 {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
@@ -1415,12 +1688,12 @@ export default function VoiceTrainingFlow({
               type="button"
               onClick={handleSubmitAnswer}
               disabled={isLoading || isPaused}
-              className="w-full sm:w-auto px-6 py-3.5 bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-300 disabled:opacity-55 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-sm cursor-pointer flex items-center justify-center gap-1.5 border-none"
+              className="w-full sm:w-auto px-6 py-3.5 bg-[#EDC154] hover:bg-[#ffdf7e] text-stone-950 disabled:bg-stone-200 disabled:opacity-55 disabled:translate-x-0 disabled:shadow-none border-2 border-stone-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-[3.5px_3.5px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1.5px] active:translate-y-[1.5px] active:shadow-[1px_1px_0px_0px_rgba(17,17,17,1)] cursor-pointer flex items-center justify-center gap-1.5"
             >
               {isLoading ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <Check className="w-4 h-4 text-white stroke-[2.5]" />
+                <Check className="w-4 h-4 text-stone-950 stroke-[2.5]" />
               )}
               <span>{isFrench ? "Valider la Réponse" : "Submit Answer"}</span>
             </button>
@@ -1438,23 +1711,23 @@ export default function VoiceTrainingFlow({
           
           {/* Review Title */}
           <div>
-            <span className="font-mono text-[9px] uppercase tracking-widest text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">
+            <span className="font-mono text-[9px] uppercase tracking-widest text-stone-950 font-black bg-[#EDC154] px-2.5 py-1 rounded-md border-2 border-stone-950 shadow-[1px_1px_0px_0px_#111111]">
               {isFrench ? "DÉBRIEFING DE CRÉATION" : "COACHING BLUEPRINT COMPLETED"}
             </span>
-            <h1 className="text-2xl md:text-3xl font-sans font-bold text-[#1A2B3C] tracking-tight mt-2.5">
+            <h1 className="text-2xl md:text-3xl font-sans font-black text-stone-950 tracking-tight mt-3">
               {isFrench ? "Compte Rendu de Session" : "Training Session Feedback"}
             </h1>
-            <p className="text-[10px] text-[#6B7280] mt-1 uppercase font-mono tracking-widest font-bold">
+            <p className="text-[10px] text-stone-500 mt-1 uppercase font-mono tracking-widest font-black">
               {isFrench ? "Amélioration stratégique sans score readiness" : "Qualitative feedback focuses on improvement"}
             </p>
           </div>
 
-          <div className="bg-white border border-[#E5E7EB] shadow-md rounded-[32px] p-6 md:p-8 space-y-6">
+          <div className="bg-white border-[2.5px] border-stone-950 shadow-[5px_5px_0px_0px_#111111] rounded-[24px] p-6 md:p-8 space-y-6">
             
             {isGeneratingReview ? (
               <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                <Loader2 className="w-10 h-10 text-[#1A2B3C] animate-spin" />
-                <p className="text-xs text-[#6B7280] font-mono uppercase tracking-widest animate-pulse font-bold">
+                <Loader2 className="w-10 h-10 text-stone-950 animate-spin" />
+                <p className="text-xs text-stone-500 font-mono uppercase tracking-widest animate-pulse font-black">
                   {isFrench ? "Analyse constructive de votre élocution..." : "SHANA is writing your growth strategy..."}
                 </p>
               </div>
@@ -1462,37 +1735,37 @@ export default function VoiceTrainingFlow({
               <div className="space-y-6 animate-fade-in">
                 
                 {/* Strength block */}
-                <div className="p-5 bg-emerald-50 border border-emerald-250 rounded-2xl">
+                <div className="p-5 bg-emerald-50 border-2 border-stone-950 rounded-2xl shadow-[3px_3px_0px_0px_rgba(17,17,17,1)]">
                   <div className="flex items-center gap-2 mb-2">
                     <Award className="w-5 h-5 text-emerald-600" />
-                    <span className="text-[10px] font-mono text-emerald-800 uppercase tracking-widest font-extrabold">
+                    <span className="text-[10px] font-mono text-emerald-800 uppercase tracking-widest font-black">
                       {isFrench ? "VOTRE FORCE VÉCUE" : "CORE PRESENTATIVE STRENGTH"}
                     </span>
                   </div>
-                  <p className="text-xs md:text-sm font-bold text-emerald-950 leading-relaxed font-sans mt-0.5">
+                  <p className="text-xs md:text-sm font-black text-emerald-950 leading-relaxed font-sans mt-0.5">
                     {reviewResult.strength}
                   </p>
                 </div>
 
                 {/* Improvement block */}
-                <div className="p-5 bg-indigo-50 border border-indigo-150 rounded-2xl">
+                <div className="p-5 bg-[#FFFDEE] border-2 border-stone-950 rounded-2xl shadow-[3px_3px_0px_0px_rgba(17,17,17,1)]">
                   <div className="flex items-center gap-2 mb-2">
-                    <AlertCircle className="w-5 h-5 text-indigo-650" />
-                    <span className="text-[10px] font-mono text-indigo-850 uppercase tracking-widest font-extrabold">
+                    <AlertCircle className="w-5 h-5 text-[#FF7E5F]" />
+                    <span className="text-[10px] font-mono text-[#FF7E5F] uppercase tracking-widest font-black">
                       {isFrench ? "AXE D’AMÉLIORATION CLÉ" : "ONE MAIN IMPROVEMENT"}
                     </span>
                   </div>
-                  <p className="text-xs md:text-sm font-bold text-[#111827] leading-relaxed mt-0.5">
+                  <p className="text-xs md:text-sm font-black text-stone-900 leading-relaxed mt-0.5">
                     {reviewResult.improvement}
                   </p>
                 </div>
 
                 {/* Suggested Exercise block */}
-                <div className="p-5 bg-[#141E28] text-white rounded-2xl shadow-inner border border-zinc-850">
-                  <span className="text-[9px] font-mono text-slate-350 uppercase tracking-widest font-extrabold block">
+                <div className="p-5 bg-stone-900 text-white rounded-2xl border-2 border-stone-950 shadow-[3px_3px_0px_0px_rgba(17,17,17,1)]">
+                  <span className="text-[9px] font-mono text-stone-400 uppercase tracking-widest font-black block">
                     {isFrench ? "EXERCICE CONSEILLÉ POUR LA SUITE" : "RECOMMENDED NEXT WORKUP"}
                   </span>
-                  <p className="text-xs text-slate-200 mt-2 italic font-medium leading-relaxed">
+                  <p className="text-xs text-stone-100 mt-2 italic font-bold leading-relaxed">
                     "{reviewResult.suggestedExercise}"
                   </p>
                 </div>
@@ -1508,7 +1781,7 @@ export default function VoiceTrainingFlow({
               <button
                 type="button"
                 onClick={handleBegin}
-                className="flex-1 px-6 py-4 bg-white border border-[#E5E7EB] hover:border-[#1A2B3C] text-[#1A2B3C] font-bold text-xs uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                className="flex-1 px-6 py-4 bg-white border-2 border-stone-950 hover:bg-stone-50 text-stone-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-[4px_4px_0px_0px_rgba(17,17,17,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_rgba(17,17,17,1)] transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4" />
                 <span>{isFrench ? "S’entraîner à Nouveau" : "Train Again"}</span>
@@ -1517,7 +1790,7 @@ export default function VoiceTrainingFlow({
               <button
                 type="button"
                 onClick={handleFinish}
-                className="flex-1 px-6 py-4 bg-[#1A2B3C] hover:bg-[#2C3E50] text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 shadow-md cursor-pointer hover:shadow-lg"
+                className="flex-1 px-6 py-4 bg-[#EDC154] hover:bg-[#ffdf7e] text-stone-950 font-black text-xs uppercase tracking-widest rounded-xl border-2 border-stone-950 shadow-[4px_4px_0px_0px_rgba(17,17,17,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_rgba(17,17,17,1)] transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <CheckCircle className="w-4 h-4" />
                 <span>{isFrench ? "Terminer et Enregistrer" : "Finish Training"}</span>

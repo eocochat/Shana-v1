@@ -114,7 +114,7 @@ export default function AICompanion({ user, lang, onTabChange }: AICompanionProp
     },
     {
       q: "What practice should I do today?",
-      a: "I recommend doing a 'Voice Simulator' drill to warm up your tone, or going for a full 'Mock Assessment' to test your performance under pressure!"
+      a: "I recommend doing a 'Voice Simulator' drill to warm up your tone, or going for a full 'Production Evaluation Suite' to test your performance under pressure!"
     }
   ];
 
@@ -251,7 +251,7 @@ export default function AICompanion({ user, lang, onTabChange }: AICompanionProp
       } else if (lowerText.includes('tarifs') || lowerText.includes('prix') || lowerText.includes('pricing') || lowerText.includes('premium') || lowerText.includes('abonner')) {
         reply = isFrench
           ? "Shana propose des formules premium flexibles pour débloquer des simulations d'évaluation illimitées et des rapports de diagnostic détaillés. Rendez-vous dans l'onglet Abonnement pour en savoir plus !"
-          : "Shana offers flexible premium tiers to unlock unlimited mock simulations and deep diagnostic reports. Check out our Premium Upgrade tab for full details!";
+          : "Shana offers flexible premium tiers to unlock unlimited Real-time AI Voice Analysis sessions and deep diagnostic reports. Check out our Premium Upgrade tab for full details!";
       } else {
         // Dynamic fallback response using role information
         reply = isFrench
@@ -310,7 +310,7 @@ export default function AICompanion({ user, lang, onTabChange }: AICompanionProp
     },
     {
       id: 'mock',
-      label: isFrench ? "Nouvel Entretien" : "Mock Interview",
+      label: isFrench ? "Nouvel Entretien" : "Real-time AI Voice Analysis",
       icon: GraduationCap,
       color: 'bg-[#EDC154] text-stone-950',
       visible: true,
@@ -444,7 +444,7 @@ export default function AICompanion({ user, lang, onTabChange }: AICompanionProp
                       <p className="text-[10px] font-semibold text-stone-600 leading-tight">
                         {isFrench 
                           ? "Prenez de l'avance en planifiant vos séances hebdomadaires d'entretien !"
-                          : "Stay disciplined by scheduling your next mock interview practice slots."}
+                          : "Stay disciplined by scheduling your next Real-time AI Voice Analysis practice slots."}
                       </p>
                     </div>
                   </div>

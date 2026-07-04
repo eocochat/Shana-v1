@@ -1108,8 +1108,8 @@ export default function ControlCenter({ currentUser, lang = 'FR' }: ControlCente
                   disabled={!isSuperAdmin}
                   className="w-full bg-white border border-stone-200 rounded-xl text-xs px-3 py-2 font-semibold text-stone-800 focus:outline-none"
                 >
-                  <option value="gemini">Google Gemini API (Default)</option>
-                  <option value="openai">OpenAI GPT-4o (Backup)</option>
+                  <option value="openai">OpenAI GPT-4o (Default)</option>
+                  <option value="gemini">Google Gemini API (Backup)</option>
                   <option value="mock">Local Deterministic Solver (Fallback)</option>
                 </select>
                 <p className="text-[10px] text-stone-400 font-semibold">
@@ -3549,7 +3549,7 @@ export default function ControlCenter({ currentUser, lang = 'FR' }: ControlCente
                   rows={4}
                   value={rollbackReasonText}
                   onChange={(e) => setRollbackReasonText(e.target.value)}
-                  placeholder={lang === 'FR' ? "e.g. Pic de latence de +3s constaté en production ou échec d'évaluation sur Gemini" : "e.g. Critical 429 quota exhaustion detected on Gemini Flash fallback path"}
+                  placeholder={lang === 'FR' ? "e.g. Pic de latence de +3s constaté en production ou échec d'évaluation sur OpenAI" : "e.g. Critical 429 quota exhaustion detected on OpenAI GPT fallback path"}
                   className="w-full bg-stone-50 border border-stone-200 rounded-xl text-xs p-3 focus:outline-none focus:bg-white"
                 />
               </div>

@@ -10,19 +10,10 @@ import {
   limit 
 } from "firebase/firestore";
 import { db } from "../lib/firebase.js";
-import { GoogleGenAI, Type } from "@google/genai";
+import { ConfigResolver } from "../../services/secrets/ConfigResolver.js";
+const Type = { OBJECT: "OBJECT", STRING: "STRING", ARRAY: "ARRAY", INTEGER: "INTEGER" };
 import crypto from "crypto";
 import { AuditLogger } from "../security/SecurityManager.js";
-
-// Initialize Gemini client for backend text analysis
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build-gateway',
-    }
-  }
-});
 
 // ==========================================
 // TYPES & DATA STRUCTURES
@@ -318,11 +309,22 @@ export class StorageCvPipelineService {
         }
         // Clean out binary garbage non-ascii headers
         extractedText = extractedText.replace(/[^\x20-\x7E\n\r\t]/g, " ");
-        if (extractedText.trim().length < 50) {
+        extractedText = extractedText.replace(/[ \t]+/g, " "); // collapse horizontal spaces
+        extractedText = extractedText.replace(/\n\s*\n+/g, "\n\n"); // collapse multiple newlines
+        extractedText = extractedText.trim();
+
+        if (extractedText.length > 15000) {
+          extractedText = extractedText.substring(0, 15000) + "\n... [truncated due to length limits]";
+        }
+
+        if (extractedText.length < 50) {
           extractedText = `Candidate Resume Document\nFilename: ${cvVersion.fileName}\nParsed text context:\n${extractedText}`;
         }
       } catch (e) {
-        extractedText = fileBase64 || `Extracted Text Placeholder for ${cvVersion.fileName}. Content raw length: ${fileBase64.length}`;
+        extractedText = fileBase64 || `Extracted Text Placeholder for ${cvVersion.fileName}. Content raw length: ${fileBase64 ? fileBase64.length : 0}`;
+        if (extractedText.length > 15000) {
+          extractedText = extractedText.substring(0, 15000) + "\n... [truncated due to length limits]";
+        }
       }
 
       cvVersion.extractedText = extractedText;
@@ -355,110 +357,88 @@ export class StorageCvPipelineService {
   }
 
   /**
-   * Structured CV Parser utilizing Gemini
+   * Structured CV Parser utilizing OpenAI
    */
   private static async parseTextWithGemini(text: string): Promise<NormalizedCvData> {
-    const prompt = `
-      You are an enterprise-grade CV and Resume processing engine. 
-      Analyze the raw extracted resume text below and structure it into a perfect, validated, and normalized schema.
-      You must fill out as many fields as possible. If a field is not found in the text, omit it or use an empty array.
-      
-      Resume Raw Content:
-      """
-      ${text}
-      """
-    `;
+    const systemPrompt = `You are an enterprise-grade CV and Resume processing engine. 
+Analyze the raw extracted resume text below and structure it into a perfect, validated, and normalized schema.
+You must fill out as many fields as possible. If a field is not found in the text, omit it or use an empty array.
+
+Return the response exactly as a well-formed JSON object matching this schema:
+{
+  "personalInformation": {
+    "fullName": "Candidate Name",
+    "email": "email@example.com",
+    "phone": "phone number",
+    "location": "city, country",
+    "website": "url"
+  },
+  "professionalSummary": "summary text",
+  "workExperience": [
+    {
+      "company": "company name",
+      "role": "role name",
+      "startDate": "date",
+      "endDate": "date or Present",
+      "description": "job duties and metrics achieved"
+    }
+  ],
+  "education": [
+    {
+      "institution": "school name",
+      "degree": "degree name",
+      "fieldOfStudy": "major",
+      "startDate": "date",
+      "endDate": "date"
+    }
+  ],
+  "certifications": ["cert1", "cert2"],
+  "technicalSkills": ["skill1", "skill2"],
+  "softSkills": ["skill1", "skill2"],
+  "languages": ["lang1", "lang2"],
+  "projects": [
+    {
+      "name": "project name",
+      "description": "description text",
+      "url": "project url"
+    }
+  ],
+  "achievements": ["achievement1", "achievement2"]
+}`;
+
+    const openAIKey = ConfigResolver.getOpenAIKey();
+    if (!openAIKey) {
+      throw new Error("OpenAI API Key is missing. Please configure it in your environment settings.");
+    }
 
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              personalInformation: {
-                type: Type.OBJECT,
-                properties: {
-                  fullName: { type: Type.STRING },
-                  email: { type: Type.STRING },
-                  phone: { type: Type.STRING },
-                  location: { type: Type.STRING },
-                  website: { type: Type.STRING }
-                },
-                required: ["fullName"]
-              },
-              professionalSummary: { type: Type.STRING },
-              workExperience: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    company: { type: Type.STRING },
-                    role: { type: Type.STRING },
-                    startDate: { type: Type.STRING },
-                    endDate: { type: Type.STRING },
-                    description: { type: Type.STRING }
-                  },
-                  required: ["company", "role"]
-                }
-              },
-              education: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    institution: { type: Type.STRING },
-                    degree: { type: Type.STRING },
-                    fieldOfStudy: { type: Type.STRING },
-                    startDate: { type: Type.STRING },
-                    endDate: { type: Type.STRING }
-                  },
-                  required: ["institution"]
-                }
-              },
-              certifications: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              },
-              technicalSkills: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              },
-              softSkills: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              },
-              languages: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              },
-              projects: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING },
-                    description: { type: Type.STRING },
-                    url: { type: Type.STRING }
-                  },
-                  required: ["name"]
-                }
-              },
-              achievements: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              }
-            },
-            required: ["personalInformation", "workExperience", "education", "technicalSkills"]
-          }
-        }
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${openAIKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Resume Raw Content:\n"""\n${text}\n"""` }
+          ],
+          temperature: 0.1,
+        }),
       });
 
-      return JSON.parse(response.text || "{}") as NormalizedCvData;
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI HTTP Error ${response.status}: ${errorText}`);
+      }
+
+      const json = await response.json();
+      const outputText = json.choices[0].message.content || "{}";
+      return JSON.parse(outputText) as NormalizedCvData;
     } catch (e) {
-      console.error("[StoragePipeline] Gemini structured parsing failure, generating clean fallback:", e);
+      console.error("[StoragePipeline] OpenAI structured parsing failure, generating clean fallback:", e);
       // Clean normalized fallback structure
       return {
         personalInformation: { fullName: "Candidate Name" },

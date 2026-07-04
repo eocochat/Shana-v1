@@ -243,6 +243,42 @@ export const DbSyncManager = {
   },
 
   /**
+   * Pushes a candidate's monetization data to cloud.
+   */
+  async saveMonetizationToCloud(userId: string, monetization: any) {
+    if (!userId || !monetization) return;
+
+    try {
+      const monetizationRef = doc(db, 'monetization', userId);
+      await setDoc(monetizationRef, {
+        userId,
+        freeAudio: monetization.freeAudio || 0,
+        packAudio: monetization.packAudio || 0,
+        topUpAudio: monetization.topUpAudio || 0,
+        freeMirror: monetization.freeMirror || 0,
+        packMirror: monetization.packMirror || 0,
+        topUpMirror: monetization.topUpMirror || 0,
+        ultraActive: monetization.ultraActive || false,
+        ultraExpiresAt: monetization.ultraExpiresAt || null,
+        ultraRenewalCancelled: monetization.ultraRenewalCancelled || false,
+        frozenCredits: monetization.frozenCredits || null,
+        purchases: monetization.purchases || []
+      }, { merge: true });
+
+      console.log(`[SHANA DbSync] Monetization data synced to cloud for user: ${userId}`);
+    } catch (err) {
+      if (isPermissionError(err)) {
+        handleFirestoreError(err, OperationType.WRITE, `monetization/${userId}`);
+      }
+      if (isOfflineError(err)) {
+        console.warn('[SHANA DbSync] Monetization sync skipped (offline-first mode):', err);
+      } else {
+        console.error('[SHANA DbSync] Failed to sync monetization to cloud:', err);
+      }
+    }
+  },
+
+  /**
    * Synchronizes data FROM cloud down to localStorage for a given userId.
    * This is called on system boot or active user login to ensure the cloud database acts as
    * the single source of truth (permanent memory layer), enabling multi-device sync and soft migration.
@@ -454,9 +490,41 @@ export const DbSyncManager = {
         localStorage.setItem(`shana_discoveries_${userId}`, JSON.stringify(insightsList));
       }
 
+      // 5. Sync Monetization
+      let monetizationSnap;
+      try {
+        monetizationSnap = await getDoc(doc(db, 'monetization', userId));
+      } catch (err) {
+        if (isPermissionError(err)) {
+          handleFirestoreError(err, OperationType.GET, `monetization/${userId}`);
+        }
+        throw err;
+      }
+
+      if (monetizationSnap.exists()) {
+        const mData = monetizationSnap.data();
+        const key = `shana_candidate_monetization_${userId}`;
+        const localMonetization = {
+          userId: mData.userId,
+          freeAudio: mData.freeAudio || 0,
+          packAudio: mData.packAudio || 0,
+          topUpAudio: mData.topUpAudio || 0,
+          freeMirror: mData.freeMirror || 0,
+          packMirror: mData.packMirror || 0,
+          topUpMirror: mData.topUpMirror || 0,
+          ultraActive: mData.ultraActive || false,
+          ultraExpiresAt: mData.ultraExpiresAt || null,
+          ultraRenewalCancelled: mData.ultraRenewalCancelled || false,
+          frozenCredits: mData.frozenCredits || null,
+          purchases: mData.purchases || []
+        };
+        localStorage.setItem(key, JSON.stringify(localMonetization));
+      }
+
       // Dispatch event to instantly trigger UI rendering across all components
       window.dispatchEvent(new Event('shana_progress_update'));
       window.dispatchEvent(new Event('shana_serendipity_update'));
+      window.dispatchEvent(new Event('shana_failed_payments_updated'));
       console.log(`[SHANA DbSync] Cloud sync complete! Locally loaded ${sessionsSnap?.size || 0} sessions.`);
       return true;
     } catch (err) {

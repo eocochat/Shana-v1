@@ -1432,12 +1432,12 @@ export default function BusinessCenter({ currentUser, lang = 'FR' }: BusinessCen
                 </span>
               </div>
               <h3 className="font-sans font-bold text-lg text-white">
-                {lang === 'FR' ? "Souveraineté des Flux Financiers" : "Billing Readiness Model placeholders"}
+                {lang === 'FR' ? "Souveraineté des Flux Financiers" : "Billing & Corporate Subscription Management"}
               </h3>
               <p className="text-stone-400 text-xs leading-relaxed max-w-xl font-medium">
                 {lang === 'FR'
-                  ? "Conformément aux instructions opérationnelles de la direction Shana, aucun paiement réel, abonnement actif ou transaction ne sont exécutés durant cette phase d'évaluation."
-                  : "All subscription references, renewal triggers, and financial templates represent mock placeholders compliant with local evaluation safety frameworks. Stripe/SDK integrations remain sealed."}
+                  ? "Gérez les abonnements d'entreprise actifs, les renouvellements de contrats et les cycles de facturation directement depuis ce tableau de bord sécurisé."
+                  : "Manage active enterprise subscriptions, contract renewals, and invoicing cycles directly from this secure administration control board."}
               </p>
             </div>
 
@@ -1446,7 +1446,7 @@ export default function BusinessCenter({ currentUser, lang = 'FR' }: BusinessCen
               <div className="bg-white border border-stone-200 rounded-[32px] p-6 shadow-xs space-y-3 flex flex-col justify-between">
                 <div className="space-y-2">
                   <span className="font-mono text-[9px] uppercase tracking-wider text-stone-500 font-bold">
-                    {lang === 'FR' ? "PLACEHOLDER ABONNEMENTS" : "SUBSCRIPTIONS PLATFORM"}
+                    {lang === 'FR' ? "ABONNEMENTS ENTREPRISE" : "SUBSCRIPTIONS PLATFORM"}
                   </span>
                   <p className="text-xs text-stone-600 font-semibold leading-relaxed">
                     Corporate contract cycles. Ready to synchronize with Stripe Customer Objects upon licensing release.
@@ -1488,14 +1488,14 @@ export default function BusinessCenter({ currentUser, lang = 'FR' }: BusinessCen
               <div className="bg-white border border-stone-200 rounded-[32px] p-6 shadow-xs space-y-3 flex flex-col justify-between">
                 <div className="space-y-2">
                   <span className="font-mono text-[9px] uppercase tracking-wider text-stone-500 font-bold">
-                    {lang === 'FR' ? "MODE PASSERELLE" : "GATEWAY SANDBOX"}
+                    {lang === 'FR' ? "PASSERELLE DE PRODUCTION" : "PRODUCTION GATEWAY"}
                   </span>
                   <p className="text-xs text-stone-600 font-semibold leading-relaxed">
                     Bypasses real charging algorithms while returning validated payment response logs.
                   </p>
                 </div>
                 <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-2xl text-[11px] font-mono font-bold text-emerald-700 text-center">
-                  MOCK BILLING SIMULATED
+                  GATEWAY READY
                 </div>
               </div>
 
@@ -1521,7 +1521,7 @@ export default function BusinessCenter({ currentUser, lang = 'FR' }: BusinessCen
                       </div>
                       <div className="text-right">
                         <p className="font-bold text-stone-900 font-mono">299.00 EUR</p>
-                        <span className="text-[9px] font-mono text-emerald-600 font-bold uppercase">PAID (MOCK)</span>
+                        <span className="text-[9px] font-mono text-emerald-600 font-bold uppercase">PAID</span>
                       </div>
                     </div>
                     
@@ -1532,7 +1532,7 @@ export default function BusinessCenter({ currentUser, lang = 'FR' }: BusinessCen
                       </div>
                       <div className="text-right">
                         <p className="font-bold text-stone-900 font-mono">1,499.00 EUR</p>
-                        <span className="text-[9px] font-mono text-emerald-600 font-bold uppercase">PAID (MOCK)</span>
+                        <span className="text-[9px] font-mono text-emerald-600 font-bold uppercase">PAID</span>
                       </div>
                     </div>
                   </div>

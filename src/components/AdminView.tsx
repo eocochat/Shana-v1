@@ -45,8 +45,13 @@ import PaymentsCenter from './admin/payments/PaymentsCenter';
 import EnterpriseCenter from './admin/enterprise/EnterpriseCenter';
 import IntegrationsCenter from './admin/integrations/IntegrationsCenter';
 import ObservabilityCenter from '../../admin/observability/index';
-import { Briefcase, Coins, CreditCard, TrendingUp } from 'lucide-react';
+import { Briefcase, Coins, CreditCard, TrendingUp, Mail } from 'lucide-react';
 import SaaSAnalyticsDashboard from './SaaSAnalyticsDashboard';
+import EmailSimulator from './EmailSimulator';
+import { RecruiterAnalyticsService } from '../lib/recruiter/recruiterAnalytics';
+import { CandidateAnalyticsService } from '../lib/candidate/analytics';
+import { KnowledgeGraph } from '../lib/knowledge/knowledgeGraph';
+import KnowledgeIntelligencePanel from './admin/KnowledgeIntelligencePanel';
 
 interface AdminViewProps {
   currentUser: User;
@@ -54,7 +59,7 @@ interface AdminViewProps {
   onNavigateTab: (tab: any) => void;
 }
 
-type AdminSubTab = 'dashboard' | 'users' | 'interviews' | 'settings' | 'audit' | 'control-center' | 'ai-operations' | 'trust' | 'business' | 'monetization' | 'payments' | 'enterprise' | 'integrations' | 'observability' | 'saas-metrics';
+type AdminSubTab = 'dashboard' | 'users' | 'interviews' | 'settings' | 'audit' | 'control-center' | 'ai-operations' | 'trust' | 'business' | 'monetization' | 'payments' | 'enterprise' | 'integrations' | 'observability' | 'saas-metrics' | 'recruiter-intelligence' | 'candidate-intelligence' | 'knowledge-intelligence' | 'smtp-simulation';
 
 export default function AdminView({ currentUser, lang = 'FR', onNavigateTab }: AdminViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<AdminSubTab>('dashboard');
@@ -452,7 +457,11 @@ export default function AdminView({ currentUser, lang = 'FR', onNavigateTab }: A
           { id: 'integrations', label: lang === 'FR' ? 'Intégrations & API' : 'Integrations & API', icon: Globe2 },
           { id: 'observability', label: lang === 'FR' ? 'Supervision & Logs' : 'Observability Center', icon: Activity },
           { id: 'saas-metrics', label: lang === 'FR' ? 'Analyses SaaS & ROI' : 'SaaS Metrics & ROI', icon: TrendingUp },
+          { id: 'recruiter-intelligence', label: lang === 'FR' ? 'Recruteur IA Brain' : 'Recruiter Brain', icon: Cpu },
+          { id: 'candidate-intelligence', label: lang === 'FR' ? 'Dossier Apprenant IA' : 'Learner Intelligence', icon: BookOpen },
+          { id: 'knowledge-intelligence', label: lang === 'FR' ? 'Interview Genome & Graphe' : 'Interview Genome & Graph', icon: Globe2 },
           { id: 'control-center', label: lang === 'FR' ? 'Platform Control Center' : 'Platform Control Center', icon: Sliders },
+          { id: 'smtp-simulation', label: lang === 'FR' ? 'Canal Simulation SMTP' : 'SMTP Simulation Channel', icon: Mail },
           { id: 'settings', label: lang === 'FR' ? 'Paramètres' : 'Settings', icon: Settings },
           { id: 'audit', label: lang === 'FR' ? 'Audit Logs' : 'Audit Logs', icon: FileLock }
         ].map(sub => {
@@ -1509,6 +1518,370 @@ export default function AdminView({ currentUser, lang = 'FR', onNavigateTab }: A
         {/* TAB 13.6: SAAS METRICS & ROI ANALYTICS */}
         {activeSubTab === 'saas-metrics' && (
           <SaaSAnalyticsDashboard currentUserId={currentUser.id} lang={lang === 'FR' ? 'FR' : 'EN'} />
+        )}
+
+        {/* TAB 13.7: RECRUITER INTELLIGENCE DASHBOARD PANEL */}
+        {activeSubTab === 'recruiter-intelligence' && (() => {
+          const stats = RecruiterAnalyticsService.getAggregatedAnalytics();
+          return (
+            <div className="space-y-8 p-6 bg-white rounded-2xl border border-stone-200 shadow-xs text-left">
+              {/* Header section */}
+              <div className="border-b border-stone-100 pb-5">
+                <span className="inline-flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-widest text-[#18633F] font-bold bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100 mb-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#18633F] animate-pulse" />
+                  {lang === 'FR' ? "MOTEUR PROPRIÉTAIRE DECISIONNEL" : "PROPRIETARY RECRUITER ENGINE"}
+                </span>
+                <h2 className="text-2xl font-sans font-black text-stone-900 tracking-tight">
+                  {lang === 'FR' ? "Panneau de Décision & Télémétrie Recruteur" : "Recruiter Decision & Telemetry Intelligence"}
+                </h2>
+                <p className="text-xs text-[#6B7280] font-medium">
+                  {lang === 'FR'
+                    ? "Statistiques d'analyse anonymisées du moteur de décision Shana, couverture des compétences, force des preuves et indices de contradiction."
+                    : "Anonymized analytical telemetry of Shana's recruiter decision engine, competency coverage, evidence quality ratios, and cognitive tracking."}
+                </p>
+              </div>
+
+              {/* KPI Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-stone-50 border border-stone-200 p-5 rounded-2xl space-y-2">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400 block">
+                    {lang === 'FR' ? "Couverture Compétences Moyenne" : "Average Competency Coverage"}
+                  </span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-mono font-black text-stone-900">{stats.averageCompetencyCoverage}%</span>
+                  </div>
+                  <div className="w-full bg-stone-200 h-1.5 rounded-full overflow-hidden">
+                    <div className="bg-[#18633F] h-full rounded-full" style={{ width: `${stats.averageCompetencyCoverage}%` }} />
+                  </div>
+                </div>
+
+                <div className="bg-stone-50 border border-stone-200 p-5 rounded-2xl space-y-2">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400 block">
+                    {lang === 'FR' ? "Indice de Confiance Moyen" : "Average Evaluation Confidence"}
+                  </span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-mono font-black text-stone-900">{stats.averageEvaluationConfidence}%</span>
+                  </div>
+                  <div className="w-full bg-stone-200 h-1.5 rounded-full overflow-hidden">
+                    <div className="bg-blue-600 h-full rounded-full" style={{ width: `${stats.averageEvaluationConfidence}%` }} />
+                  </div>
+                </div>
+
+                <div className="bg-stone-50 border border-stone-200 p-5 rounded-2xl space-y-2">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400 block">
+                    {lang === 'FR' ? "Preuves Collectées par Session" : "Avg Evidence Collected"}
+                  </span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-mono font-black text-stone-900">{stats.averageEvidenceCollected}</span>
+                    <span className="text-xs text-stone-400 font-bold">points</span>
+                  </div>
+                  <p className="text-[10px] text-stone-500 font-medium">
+                    {lang === 'FR' ? "Preuves réelles extraites du dialogue" : "Verifiable past achievements recorded"}
+                  </p>
+                </div>
+
+                <div className="bg-stone-50 border border-stone-200 p-5 rounded-2xl space-y-2">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400 block">
+                    {lang === 'FR' ? "Taux de Contradictions Moyen" : "Contradiction Frequency"}
+                  </span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-mono font-black text-rose-600">{stats.averageContradictionsCount}</span>
+                    <span className="text-xs text-stone-400 font-bold">per session</span>
+                  </div>
+                  <p className="text-[10px] text-stone-500 font-medium">
+                    {lang === 'FR' ? "Incohérences sémantiques soulevées" : "Semantic mismatches challenged"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Advanced Analytics Columns */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Hiring Recommendation Distribution */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-sans font-black text-stone-900 uppercase tracking-wider">
+                    {lang === 'FR' ? "Distribution des Décisions de Recrutement" : "Hiring Recommendation Distribution"}
+                  </h3>
+                  <div className="space-y-3 bg-stone-50 p-5 rounded-2xl border border-stone-150">
+                    {Object.entries(stats.recommendationDistribution).map(([rec, count]) => {
+                      const total = Object.values(stats.recommendationDistribution).reduce((a, b) => a + b, 0) || 1;
+                      const percentage = Math.round((count / total) * 100);
+                      const isPositive = rec.includes('Hire') && !rec.includes('No');
+                      const isNegative = rec.includes('No');
+
+                      return (
+                        <div key={rec} className="space-y-1">
+                          <div className="flex justify-between text-xs font-bold text-stone-700">
+                            <span className="flex items-center gap-1.5">
+                              <span className={`w-2 h-2 rounded-full ${isPositive ? 'bg-emerald-500' : isNegative ? 'bg-rose-500' : 'bg-stone-400'}`} />
+                              {rec}
+                            </span>
+                            <span>{count} ({percentage}%)</span>
+                          </div>
+                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full ${isPositive ? 'bg-emerald-500' : isNegative ? 'bg-rose-500' : 'bg-stone-400'}`} 
+                              style={{ width: `${percentage || 1}%` }} 
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Evidence Quality & Explanations */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-sans font-black text-stone-900 uppercase tracking-wider">
+                    {lang === 'FR' ? "Qualité des Preuves & Raisonnement IA" : "Evidence Quality & AI Reasoning"}
+                  </h3>
+                  <div className="bg-stone-50 p-5 rounded-2xl border border-stone-150 space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between border-b border-stone-200 pb-2">
+                        <span className="text-xs font-bold text-stone-500">{lang === 'FR' ? "Type de preuve sémantique" : "Semantic Evidence Type"}</span>
+                        <span className="text-xs font-bold text-stone-500">{lang === 'FR' ? "Niveau de Confiance" : "Assigned Confidence"}</span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-stone-800">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
+                          {lang === 'FR' ? "Expérience Directe (Strong)" : "Direct Professional Experience (Strong)"}
+                        </span>
+                        <span className="text-xs font-mono font-bold text-emerald-700">&gt; 90%</span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-stone-800">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-amber-500" />
+                          {lang === 'FR' ? "Connaissance Pratique (Medium)" : "Practical Domain Knowledge (Medium)"}
+                        </span>
+                        <span className="text-xs font-mono font-bold text-amber-700">75% - 85%</span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-stone-800">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-stone-400" />
+                          {lang === 'FR' ? "Réponse Hypothétique (Weak)" : "Hypothetical Scenario (Weak)"}
+                        </span>
+                        <span className="text-xs font-mono font-bold text-stone-500">30% - 50%</span>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-stone-200 pt-3 space-y-2">
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400 block">
+                        {lang === 'FR' ? "Exemple de Raisonnement Cognitif Actif" : "Active Recruiter Reasoning Logic"}
+                      </span>
+                      <div className="bg-stone-900 text-stone-200 p-3 rounded-lg font-mono text-[10px] leading-relaxed border border-stone-800">
+                        <p className="text-[#10B981]">{"// Shana Recruiter Brain Core State Loop"}</p>
+                        <p>{"[02:44:12 PM] Checking lowest covered competencies..."}</p>
+                        <p className="text-yellow-400">{"[02:44:12 PM] Gap found: 'conflict_resolution' (coverage 0%)"}</p>
+                        <p>{"[02:44:12 PM] Next Objective set: Need conflict example"}</p>
+                        <p className="text-blue-400">{"[02:44:12 PM] Action: Move interview stage to Behavioral Assessment"}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Explaining dynamic strategy */}
+              <div className="bg-emerald-50/50 border border-emerald-100 p-5 rounded-2xl flex flex-col md:flex-row gap-4 items-start">
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-200 text-[#18633F]">
+                  <Cpu className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-xs font-black text-[#1A2B3C] uppercase tracking-wider">
+                    {lang === 'FR' ? "Pas de script figé — Évaluation Dynamique" : "Zero Fixed Scripting — Dynamic Strategy Evaluation"}
+                  </h4>
+                  <p className="text-xs text-stone-600 leading-relaxed">
+                    {lang === 'FR'
+                      ? "Chaque réponse modifie l'arbre de décision en temps réel. Si un candidat fournit d'emblée d'excellentes preuves sur un sujet, l'IA saute les étapes d'évaluation redondantes pour optimiser la durée de la session et maximiser l'expérience utilisateur."
+                      : "Unlike basic scripted chatbots, Shana continuously adjusts its strategy. If rich competency evidence is gathered early, unnecessary assessment sections are dynamically bypassed, reducing fatigue and focusing entirely on high-signal inquiries."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* TAB 13.8: CANDIDATE INTELLIGENCE DASHBOARD PANEL */}
+        {activeSubTab === 'candidate-intelligence' && (() => {
+          const stats = CandidateAnalyticsService.getAggregatedAnalytics();
+          return (
+            <div className="space-y-8 p-6 bg-white rounded-2xl border border-stone-200 shadow-xs text-left">
+              {/* Header section */}
+              <div className="border-b border-stone-100 pb-5">
+                <span className="inline-flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-widest text-indigo-700 font-bold bg-indigo-50 px-2.5 py-1 rounded-md border border-indigo-100 mb-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
+                  {lang === 'FR' ? "MOTEUR PROPRIÉTAIRE D'APPRENTISSAGE CONTINU" : "PROPRIETARY CONTINUOUS LEARNING ENGINE"}
+                </span>
+                <h2 className="text-2xl font-sans font-black text-stone-900 tracking-tight">
+                  {lang === 'FR' ? "Panneau de Supervision Dossier Apprenant IA" : "Candidate Learner Intelligence Panel"}
+                </h2>
+                <p className="text-xs text-[#6B7280] font-medium">
+                  {lang === 'FR'
+                    ? "Télémétrie anonymisée du taux de progression, de l'engagement, de la rétention et de l'acquisition des compétences sur le long terme."
+                    : "Anonymized telemetry tracking long-term career readiness, milestone achievements, skill growth rates, and retention loops."}
+                </p>
+              </div>
+
+              {/* KPI Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-stone-50 border border-stone-200 p-5 rounded-2xl space-y-2">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400 block">
+                    {lang === 'FR' ? "Taux de Progression Moyen" : "Average Growth Rate"}
+                  </span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-mono font-black text-emerald-600">+{stats.averageGrowthRate}%</span>
+                  </div>
+                  <p className="text-[10px] text-stone-500 font-medium">
+                    {lang === 'FR' ? "Amélioration moyenne d'une session à l'autre" : "Average cross-session skill evolution"}
+                  </p>
+                </div>
+
+                <div className="bg-stone-50 border border-stone-200 p-5 rounded-2xl space-y-2">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400 block">
+                    {lang === 'FR' ? "Indice de Rétention" : "Retention Index"}
+                  </span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-mono font-black text-indigo-600">{stats.averageRetentionRate}%</span>
+                  </div>
+                  <p className="text-[10px] text-stone-500 font-medium">
+                    {lang === 'FR' ? "Régularité de pratique des candidats" : "Candidate cohort return & practice consistency"}
+                  </p>
+                </div>
+
+                <div className="bg-stone-50 border border-stone-200 p-5 rounded-2xl space-y-2">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400 block">
+                    {lang === 'FR' ? "Séances d'Entretien Complétées" : "Sessions Completed"}
+                  </span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-mono font-black text-stone-900">{stats.totalInterviewsCompleted}</span>
+                    <span className="text-xs text-stone-400 font-bold">runs</span>
+                  </div>
+                  <p className="text-[10px] text-stone-500 font-medium">
+                    {lang === 'FR' ? "Diagnostics d'évaluation lancés" : "Total mock assessment iterations logs"}
+                  </p>
+                </div>
+
+                <div className="bg-stone-50 border border-stone-200 p-5 rounded-2xl space-y-2">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400 block">
+                    {lang === 'FR' ? "Succès des Objectifs" : "Milestones Unlocked"}
+                  </span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-mono font-black text-amber-600">{stats.milestonesUnlockedRatio}%</span>
+                  </div>
+                  <p className="text-[10px] text-stone-500 font-medium">
+                    {lang === 'FR' ? "Proportion de badges débloqués" : "Percentage of career achievements unlocked"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Bento Details */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Readiness & Progression distribution */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-sans font-black text-stone-900 uppercase tracking-wider">
+                    {lang === 'FR' ? "Distribution de la Préparabilité" : "Hiring Readiness Distribution"}
+                  </h3>
+                  <div className="bg-stone-50 p-5 rounded-2xl border border-stone-150 space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-stone-600 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                          {lang === 'FR' ? "Prêt pour Recrutement (>80%)" : "Hiring Ready (>80%)"}
+                        </span>
+                        <span className="text-xs font-mono font-bold text-stone-900">{stats.readinessDistribution.ready} {lang === 'FR' ? "candidats" : "candidates"}</span>
+                      </div>
+                      <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${(stats.readinessDistribution.ready / (stats.readinessDistribution.ready + stats.readinessDistribution.growing + stats.readinessDistribution.beginning || 1)) * 100}%` }} />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-stone-600 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-amber-500" />
+                          {lang === 'FR' ? "En cours d'acquisition (50-80%)" : "Progressing (50-80%)"}
+                        </span>
+                        <span className="text-xs font-mono font-bold text-stone-900">{stats.readinessDistribution.growing} {lang === 'FR' ? "candidats" : "candidates"}</span>
+                      </div>
+                      <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                        <div className="bg-amber-500 h-full rounded-full" style={{ width: `${(stats.readinessDistribution.growing / (stats.readinessDistribution.ready + stats.readinessDistribution.growing + stats.readinessDistribution.beginning || 1)) * 100}%` }} />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-stone-600 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-rose-500" />
+                          {lang === 'FR' ? "Bases à consolider (<50%)" : "Beginning Gaps (<50%)"}
+                        </span>
+                        <span className="text-xs font-mono font-bold text-stone-900">{stats.readinessDistribution.beginning} {lang === 'FR' ? "candidats" : "candidates"}</span>
+                      </div>
+                      <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                        <div className="bg-rose-500 h-full rounded-full" style={{ width: `${(stats.readinessDistribution.beginning / (stats.readinessDistribution.ready + stats.readinessDistribution.growing + stats.readinessDistribution.beginning || 1)) * 100}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Most improved & Learning trends */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-sans font-black text-stone-900 uppercase tracking-wider">
+                    {lang === 'FR' ? "Tendances d'Apprentissage & Axes Clés" : "Learning Trends & Core Axes"}
+                  </h3>
+                  <div className="bg-stone-50 p-5 rounded-2xl border border-stone-150 space-y-4">
+                    <div className="flex justify-between items-center border-b border-stone-200 pb-3">
+                      <span className="text-xs font-bold text-stone-500">{lang === 'FR' ? "Compétence la plus travaillée" : "Most Targeted Competency"}</span>
+                      <span className="text-xs font-mono font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{stats.mostImprovedCompetency}</span>
+                    </div>
+
+                    <div className="space-y-3">
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400 block">
+                        {lang === 'FR' ? "Comportement du Moteur Prédictif" : "Predictive Engine Diagnostics"}
+                      </span>
+                      <div className="bg-stone-900 text-stone-200 p-4 rounded-xl font-mono text-[10px] leading-relaxed border border-stone-800">
+                        <p className="text-indigo-400">{"// Shana Candidate Brain Engine"}</p>
+                        <p>{"[SYSTEM] Core Learner profile update triggers active."}</p>
+                        <p className="text-emerald-400">{"[SYSTEM] Average speaking fluency index: 82%"}</p>
+                        <p>{"[SYSTEM] Suggestion strategy adjusted: personalized coaching track adapted."}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* TAB 13.9: KNOWLEDGE INTELLIGENCE GRAPH PANEL */}
+        {activeSubTab === 'knowledge-intelligence' && (
+          <KnowledgeIntelligencePanel lang={lang} />
+        )}
+
+        {/* TAB 13.10: SMTP SIMULATION CHANNEL */}
+        {activeSubTab === 'smtp-simulation' && (
+          <div className="space-y-6 text-left">
+            <div className="bg-white rounded-2xl border border-stone-200 shadow-xs p-6">
+              <div className="border-b border-stone-100 pb-5 mb-6">
+                <span className="inline-flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-widest text-amber-600 font-bold bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200/50 mb-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  {lang === 'FR' ? "SIMULATEUR INTERACTIF SMTP SÉCURISÉ" : "SECURE SMTP INTERACTIVE SIMULATOR"}
+                </span>
+                <h2 className="text-2xl font-sans font-black text-stone-900 tracking-tight">
+                  {lang === 'FR' ? "SMTP Simulation Channel" : "SMTP Simulation Channel"}
+                </h2>
+                <p className="text-xs text-[#6B7280] font-medium">
+                  {lang === 'FR'
+                    ? "Outil d'administration pour tester l'envoi de mails transactionnels liés aux actions des utilisateurs (inscription, connexion, réinitialisation, score d'évaluation)."
+                    : "Administrative panel to simulate and trace outbound transactional emails triggered by user actions (signup, login, reset, assessment score)."}
+                </p>
+              </div>
+
+              <div className="max-w-4xl mx-auto">
+                <EmailSimulator inline={true} userEmail={currentUser.email} userName={currentUser.firstName} />
+              </div>
+            </div>
+          </div>
         )}
 
       </div>

@@ -118,6 +118,26 @@
         "errorLog": { "type": "string" }
       },
       "required": ["id", "jobType", "userId", "priority", "payload", "retryCount", "status", "createdAt"]
+    },
+    "Monetization": {
+      "title": "Monetization",
+      "description": "Represents the candidate's balance of credits and subscriptions",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "freeAudio": { "type": "integer" },
+        "packAudio": { "type": "integer" },
+        "topUpAudio": { "type": "integer" },
+        "freeMirror": { "type": "integer" },
+        "packMirror": { "type": "integer" },
+        "topUpMirror": { "type": "integer" },
+        "ultraActive": { "type": "boolean" },
+        "ultraExpiresAt": { "type": "string" },
+        "ultraRenewalCancelled": { "type": "boolean" },
+        "frozenCredits": { "type": "object" },
+        "purchases": { "type": "array" }
+      },
+      "required": ["userId", "freeAudio", "packAudio", "topUpAudio", "freeMirror", "packMirror", "topUpMirror", "ultraActive"]
     }
   },
   "firestore": {
@@ -152,6 +172,10 @@
     "/jobs/{jobId}": {
       "schema": { "$ref": "Job" },
       "description": "Collection of background queue jobs"
+    },
+    "/monetization/{userId}": {
+      "schema": { "$ref": "Monetization" },
+      "description": "Collection of candidate monetization balances"
     }
   }
 }

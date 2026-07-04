@@ -20,8 +20,10 @@ import {
   AlertCircle,
   Play,
   Users,
-  TrendingUp
+  TrendingUp,
+  Video
 } from 'lucide-react';
+import Footer from './Footer';
 
 interface LandingPageProps {
   onStartOnboarding?: () => void;
@@ -189,7 +191,17 @@ export default function LandingPage({
       footerCol2Title: "Espace Candidats",
       footerCol3Title: "Espace Entreprises",
       footerCol4Title: "Mentions Légales",
-      footerRights: "© 2026 Shana - Votre coach IA d'entretien. Tous droits réservés."
+      footerRights: "© 2026 Shana - Votre coach IA d'entretien. Tous droits réservés.",
+      
+      pricingTitle: "Tarifs & Formats d'Entraînement",
+      pricingSub: "Des formules flexibles sans engagement pour franchir tous les paliers oratoires de votre recrutement.",
+      pricingTypeIntro: "Nos formats de session complémentaires",
+      pricingAudioTitle: "🎙️ Session d'Entraînement Vocal",
+      pricingAudioDesc: "Entraînez-vous à voix haute avec Shana. Parlez directement dans votre micro, travaillez le rythme de parole et éliminez les tics d'élocution.",
+      pricingMirrorTitle: "📸 Évaluation Miroir Complète",
+      pricingMirrorDesc: "Mettez-vous en situation réelle devant votre caméra. Obtenez un diagnostic exhaustif combinant posture, communication visuelle et confiance oratoire.",
+      pricingPlanCTA: "Commencer la simulation 🚀",
+      pricingUnlimitedBadge: "Populaire"
     },
     EN: {
       brand: "Shana",
@@ -242,7 +254,17 @@ export default function LandingPage({
       footerCol2Title: "Candidate Hub",
       footerCol3Title: "Enterprise Space",
       footerCol4Title: "Legal & Terms",
-      footerRights: "© 2026 Shana - Your AI Interview Coach. All rights reserved."
+      footerRights: "© 2026 Shana - Your AI Interview Coach. All rights reserved.",
+
+      pricingTitle: "Pricing & Training Formats",
+      pricingSub: "Tailored options to align with your career ambitions and unlock top-tier professional delivery.",
+      pricingTypeIntro: "Our Complementary Session Formats",
+      pricingAudioTitle: "🎙️ Adaptive Voice Session",
+      pricingAudioDesc: "Interactive speech workouts with Shana. Speak directly into your microphone, refine your verbal flow, and eliminate vocal fillers.",
+      pricingMirrorTitle: "📸 Full Mirror Video Assessment",
+      pricingMirrorDesc: "Record your mock interview in high-fidelity on camera. Receive full visual diagnostics, posture cues, and professional confidence grading.",
+      pricingPlanCTA: "Get Started Now 🚀",
+      pricingUnlimitedBadge: "Popular"
     }
   };
 
@@ -288,10 +310,11 @@ export default function LandingPage({
             <a href="#methodology-section" className="hover:underline transition-all">{t.navMeth}</a>
             <a href="#social-proof-section" className="hover:underline transition-all">{t.navAvis}</a>
             <a 
-              href="#footer-section" 
+              href="#pricing-section" 
               onClick={(e) => {
                 e.preventDefault();
-                if (onNavigatePage) onNavigatePage('pricing');
+                const el = document.getElementById('pricing-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
               }}
               className="hover:underline transition-all"
             >
@@ -957,63 +980,276 @@ export default function LandingPage({
       </section>
 
       {/* =========================================
-          FOOTER (Vibrant violet background)
+          SECTION PRICING & SESSION TYPES
          ========================================= */}
-      <footer id="footer-section" className="bg-stone-950 text-stone-200 pt-16 pb-12">
+      <section id="pricing-section" className="py-24 bg-white border-b-4 border-stone-950 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-10 pb-12 border-b border-stone-800 text-left">
-            
-            {/* Column 1: Brand & Desc */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-                <div className="w-9 h-9 rounded-xl bg-[#EDC154] text-stone-950 p-0.5 flex items-center justify-center font-sans font-black text-xl border-2 border-stone-950 shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)]">
-                  S
-                </div>
-                <span className="font-sans font-black tracking-tight text-white text-xl uppercase">{t.brand}</span>
-              </div>
-              <p className="text-xs text-stone-400 leading-relaxed font-bold">
-                {t.footerCol1Desc}
-              </p>
-            </div>
-
-            {/* Column 2: Candidates */}
-            <div className="space-y-4">
-              <h4 className="font-sans font-black text-sm text-white uppercase tracking-wider">{t.footerCol2Title}</h4>
-              <ul className="space-y-2.5 text-xs text-stone-400 font-bold uppercase tracking-wide">
-                <li><button onClick={() => onStartOnboarding && onStartOnboarding()} className="hover:text-white hover:underline transition-colors cursor-pointer text-left">{lang === 'FR' ? "Lancer une simulation" : "Start a simulation"}</button></li>
-                <li><button onClick={() => onStartOnboarding && onStartOnboarding()} className="hover:text-white hover:underline transition-colors cursor-pointer text-left">{lang === 'FR' ? "Diagnostic Micro & Cam" : "Check Mic & Webcam"}</button></li>
-                <li><a href="#methodology-section" className="hover:text-white hover:underline transition-colors">{lang === 'FR' ? "Méthodologie vocale" : "Vocal methodology"}</a></li>
-              </ul>
-            </div>
-
-            {/* Column 3: Enterprise */}
-            <div className="space-y-4">
-              <h4 className="font-sans font-black text-sm text-white uppercase tracking-wider">{t.footerCol3Title}</h4>
-              <ul className="space-y-2.5 text-xs text-stone-400 font-bold uppercase tracking-wide">
-                <li><a href="#footer-section" onClick={(e) => { e.preventDefault(); if (onNavigatePage) onNavigatePage('pricing'); }} className="hover:text-white hover:underline transition-colors">{lang === 'FR' ? "Abonnements Pro" : "Pro Subscriptions"}</a></li>
-                <li><a href="#footer-section" onClick={(e) => { e.preventDefault(); if (onNavigatePage) onNavigatePage('how-it-works'); }} className="hover:text-white hover:underline transition-colors">{lang === 'FR' ? "Intégration Recruteur" : "Recruiter API Integration"}</a></li>
-              </ul>
-            </div>
-
-            {/* Column 4: Legals */}
-            <div className="space-y-4">
-              <h4 className="font-sans font-black text-sm text-white uppercase tracking-wider">{t.footerCol4Title}</h4>
-              <ul className="space-y-2.5 text-xs text-stone-400 font-bold uppercase tracking-wide">
-                <li><a href="#footer-section" onClick={(e) => { e.preventDefault(); if (onNavigatePage) onNavigatePage('terms'); }} className="hover:text-white hover:underline transition-colors">{lang === 'FR' ? "Conditions Générales" : "Terms & Conditions"}</a></li>
-                <li><a href="#footer-section" onClick={(e) => { e.preventDefault(); if (onNavigatePage) onNavigatePage('privacy'); }} className="hover:text-white hover:underline transition-colors">{lang === 'FR' ? "Politique de Confidentialité" : "Privacy Policy"}</a></li>
-              </ul>
-            </div>
-
+          {/* Header */}
+          <div className="text-center space-y-3 max-w-3xl mx-auto mb-16">
+            <span className="font-mono text-xs font-black uppercase tracking-widest text-stone-950 bg-[#EDC154] border-2 border-stone-950 px-3.5 py-1.5 rounded-md inline-block shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
+              {lang === 'FR' ? "TARIFS & SESSIONS" : "PRICING & SESSIONS"}
+            </span>
+            <h2 className="text-3xl sm:text-4xl font-sans font-black text-stone-950 tracking-tight leading-tight uppercase">
+              {t.pricingTitle}
+            </h2>
+            <p className="text-stone-700 text-sm sm:text-base font-bold max-w-xl mx-auto leading-relaxed">
+              {t.pricingSub}
+            </p>
           </div>
 
-          {/* Bottom Copyright Information */}
-          <div className="pt-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-center sm:text-left text-xs text-stone-500 font-bold uppercase tracking-wider">
-            <p>{t.footerRights}</p>
+          {/* Part 1: Explanation of What We Get (Session Types) */}
+          <div className="mb-20 max-w-5xl mx-auto">
+            <h3 className="text-center font-sans font-black text-lg sm:text-xl text-stone-950 uppercase tracking-tight mb-8">
+              {t.pricingTypeIntro}
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Audio Voice Session explanation card */}
+              <div className="bg-[#FAF7F2] p-6 sm:p-8 rounded-2xl border-2 border-stone-950 shadow-[4px_4px_0px_0px_rgba(17,17,17,1)] text-left flex flex-col justify-between space-y-4">
+                <div className="space-y-3">
+                  <div className="w-12 h-12 bg-white text-stone-950 border-2 border-stone-950 rounded-xl flex items-center justify-center text-2xl shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
+                    🎙️
+                  </div>
+                  <h4 className="font-sans font-black text-lg text-stone-950 uppercase">
+                    {t.pricingAudioTitle}
+                  </h4>
+                  <p className="text-xs sm:text-sm text-stone-600 font-bold leading-relaxed">
+                    {t.pricingAudioDesc}
+                  </p>
+                </div>
+                <div className="pt-3 border-t border-stone-200">
+                  <span className="text-[10px] font-mono font-black text-stone-500 uppercase tracking-wider block">
+                    {lang === 'FR' ? "Inclus dans tous les Packs et Recharges" : "Included in all Packs and Top-ups"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Mirror Video Session explanation card */}
+              <div className="bg-[#FAF7F2] p-6 sm:p-8 rounded-2xl border-2 border-stone-950 shadow-[4px_4px_0px_0px_rgba(17,17,17,1)] text-left flex flex-col justify-between space-y-4">
+                <div className="space-y-3">
+                  <div className="w-12 h-12 bg-white text-stone-950 border-2 border-stone-950 rounded-xl flex items-center justify-center text-2xl shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
+                    📸
+                  </div>
+                  <h4 className="font-sans font-black text-lg text-stone-950 uppercase">
+                    {t.pricingMirrorTitle}
+                  </h4>
+                  <p className="text-xs sm:text-sm text-stone-600 font-bold leading-relaxed">
+                    {t.pricingMirrorDesc}
+                  </p>
+                </div>
+                <div className="pt-3 border-t border-stone-200">
+                  <span className="text-[10px] font-mono font-black text-stone-500 uppercase tracking-wider block">
+                    {lang === 'FR' ? "Inclus dans le Pack Premium & l'offre Illimitée" : "Included in Premium Pack & Unlimited Plans"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Part 2: Pricing Packs & CTAs */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+            
+            {/* 1. Starter Pack */}
+            <div className="bg-white rounded-3xl p-8 border-2 border-stone-950 flex flex-col justify-between space-y-8 text-left shadow-[4px_4px_0px_0px_rgba(17,17,17,1)] hover:shadow-[6px_6px_0px_0px_rgba(17,17,17,1)] hover:-translate-y-1 transition-all">
+              <div className="space-y-6">
+                <div>
+                  <span className="font-mono text-[10px] font-black uppercase text-stone-500 tracking-widest block mb-1">
+                    {lang === 'FR' ? "DÉCOUVERTE SANS ENGAGEMENT" : "ONE-TIME DISCOVERY"}
+                  </span>
+                  <h4 className="font-sans font-black text-2xl text-stone-950 uppercase tracking-tight">
+                    {lang === 'FR' ? "Pack Starter" : "Starter Pack"}
+                  </h4>
+                </div>
+                
+                <div className="flex items-baseline gap-1">
+                  <span className="font-sans font-black text-4xl sm:text-5xl text-stone-950">3.99€</span>
+                  <span className="text-xs font-black text-stone-500 uppercase tracking-wider">
+                    {lang === 'FR' ? "/ paiement unique" : "/ one-time"}
+                  </span>
+                </div>
+
+                <p className="text-xs.5 text-stone-600 font-bold leading-relaxed">
+                  {lang === 'FR' ? "Idéal pour une préparation légère et découvrir l'accompagnement vocal Shana." : "Perfect for lightweight preparation and discovering Shana's voice coaching."}
+                </p>
+
+                <div className="pt-4 border-t border-stone-100 space-y-3">
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#18633F] shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-stone-700">
+                      {lang === 'FR' ? "3 Sessions d'Entraînement Vocal" : "3 Adaptive Voice Sessions"}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#18633F] shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-stone-700">
+                      {lang === 'FR' ? "Aucun abonnement" : "No ongoing subscription"}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#18633F] shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-stone-700">
+                      {lang === 'FR' ? "Sessions valables à vie" : "Sessions never expire"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => onStartOnboarding && onStartOnboarding()}
+                className="w-full py-3.5 bg-white hover:bg-stone-50 text-stone-950 border-2 border-stone-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] transition-all cursor-pointer text-center"
+              >
+                {t.pricingPlanCTA}
+              </button>
+            </div>
+
+            {/* 2. Premium Pack */}
+            <div className="bg-white rounded-3xl p-8 border-2 border-stone-950 flex flex-col justify-between space-y-8 text-left relative shadow-[6px_6px_0px_0px_rgba(17,17,17,1)] hover:shadow-[8px_8px_0px_0px_rgba(17,17,17,1)] hover:-translate-y-1 transition-all overflow-hidden">
+              {/* Highlight ribbon */}
+              <div className="absolute top-0 right-0 bg-[#EDC154] border-b-2 border-l-2 border-stone-950 px-4 py-1.5 text-[9px] font-sans font-black uppercase tracking-wider text-stone-950 shadow-sm z-10">
+                {t.pricingUnlimitedBadge}
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <span className="font-mono text-[10px] font-black uppercase text-stone-500 tracking-widest block mb-1">
+                    {lang === 'FR' ? "ENTRAÎNEMENT RECOMMANDÉ" : "RECOMMENDED FORMULA"}
+                  </span>
+                  <h4 className="font-sans font-black text-2xl text-stone-950 uppercase tracking-tight">
+                    {lang === 'FR' ? "Pack Premium" : "Premium Pack"}
+                  </h4>
+                </div>
+                
+                <div className="flex items-baseline gap-1">
+                  <span className="font-sans font-black text-4xl sm:text-5xl text-stone-950">7.99€</span>
+                  <span className="text-xs font-black text-stone-500 uppercase tracking-wider">
+                    {lang === 'FR' ? "/ paiement unique" : "/ one-time"}
+                  </span>
+                </div>
+
+                <p className="text-xs.5 text-stone-600 font-bold leading-relaxed">
+                  {lang === 'FR' ? "Pour les candidats sérieux qui veulent peaufiner leur élocution vocale ET faire un stress test devant caméra." : "For serious candidates who want to refine speaking poise AND pass a realistic screen assessment."}
+                </p>
+
+                <div className="pt-4 border-t border-stone-100 space-y-3">
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#18633F] shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-stone-950">
+                      {lang === 'FR' ? "5 Sessions d'Entraînement Vocal" : "5 Adaptive Voice Sessions"}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#18633F] shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-stone-950">
+                      {lang === 'FR' ? "1 Évaluation Miroir Complète (Vidéo)" : "1 Full Mirror Video Assessment"}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#18633F] shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-stone-700">
+                      {lang === 'FR' ? "Sessions valables à vie" : "Sessions never expire"}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#18633F] shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-stone-700">
+                      {lang === 'FR' ? "Rapport d'élocution & posture" : "Poise & vocal diagnostic report"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => onStartOnboarding && onStartOnboarding()}
+                className="w-full py-3.5 bg-[#EDC154] hover:bg-[#ffdf7e] text-stone-950 border-2 border-stone-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] transition-all cursor-pointer text-center"
+              >
+                {t.pricingPlanCTA}
+              </button>
+            </div>
+
+            {/* 3. Ultra Unlimited */}
+            <div className="bg-stone-950 rounded-3xl p-8 border-2 border-stone-950 flex flex-col justify-between space-y-8 text-left shadow-[4px_4px_0px_0px_rgba(17,17,17,1)] hover:shadow-[6px_6px_0px_0px_rgba(17,17,17,1)] hover:-translate-y-1 transition-all">
+              <div className="space-y-6">
+                <div>
+                  <span className="font-mono text-[10px] font-black uppercase text-stone-400 tracking-widest block mb-1">
+                    {lang === 'FR' ? "SANS ENGAGEMENT" : "CANCEL ANYTIME"}
+                  </span>
+                  <h4 className="font-sans font-black text-2xl text-white uppercase tracking-tight">
+                    {lang === 'FR' ? "Ultra Illimité" : "Ultra Unlimited"}
+                  </h4>
+                </div>
+                
+                <div className="flex items-baseline gap-1">
+                  <span className="font-sans font-black text-4xl sm:text-5xl text-white">39.99€</span>
+                  <span className="text-xs font-black text-stone-400 uppercase tracking-wider">
+                    {lang === 'FR' ? "/ mois" : "/ month"}
+                  </span>
+                </div>
+
+                <p className="text-xs.5 text-stone-300 font-bold leading-relaxed">
+                  {lang === 'FR' ? "Accès illimité aux simulations pour s'entraîner quotidiennement et forger une assurance à toute épreuve." : "Unlimited simulation access to build maximum speaking confidence for high-level interviews."}
+                </p>
+
+                <div className="pt-4 border-t border-stone-800 space-y-3">
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#EDC154] shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-stone-200">
+                      {lang === 'FR' ? "Entraînements Vocaux Illimités" : "Unlimited Adaptive Voice Sessions"}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#EDC154] shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-stone-200">
+                      {lang === 'FR' ? "Évaluations Miroir Illimitées" : "Unlimited Mirror Video Assessments"}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#EDC154] shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-stone-200">
+                      {lang === 'FR' ? "Accès prioritaire à l'IA" : "Priority AI queue speeds"}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#EDC154] shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-stone-200">
+                      {lang === 'FR' ? "Aucun engagement" : "No contract, cancel anytime"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => onStartOnboarding && onStartOnboarding()}
+                className="w-full py-3.5 bg-white hover:bg-stone-100 text-stone-950 border-2 border-stone-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-[3px_3px_0px_0px_rgba(255,255,255,0.9)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1.5px_1.5px_0px_0px_rgba(255,255,255,0.9)] transition-all cursor-pointer text-center"
+              >
+                {t.pricingPlanCTA}
+              </button>
+            </div>
+
           </div>
 
         </div>
-      </footer>
+      </section>
+
+      <Footer
+        lang={lang}
+        onChangeLang={(newLang) => onChangeLang && onChangeLang(newLang)}
+        onNavigatePage={(pageId) => {
+          if (pageId === 'pricing') {
+            const el = document.getElementById('pricing-section');
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth' });
+              return;
+            }
+          }
+          if (onNavigatePage) {
+            onNavigatePage(pageId);
+          }
+        }}
+        onNavigateHome={() => {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+      />
 
     </div>
   );

@@ -8,10 +8,12 @@ setLogLevel('silent');
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize firestore with forced long polling to bypass proxy/WebSocket sandbox limits
+// Initialize firestore with forced long polling and disabled fetch streams to bypass proxy/WebSocket/HTTP2 stream limits
 const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
-}, firebaseConfig.firestoreDatabaseId || '(default)');
+  experimentalAutoDetectLongPolling: false,
+  useFetchStreams: false,
+} as any, firebaseConfig.firestoreDatabaseId || '(default)');
 
 const auth = getAuth(app);
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ActiveTab, Language } from '../types';
 import { translations } from '../translations';
-import { Home, Mic, Video, Clock, User, Sparkles, Compass } from 'lucide-react';
+import { Home, Mic, Video, Clock, User, Sparkles, Compass, Brain } from 'lucide-react';
 import { StorageService } from '../lib/storage';
 
 interface NavbarProps {
@@ -36,6 +36,7 @@ export default function Navbar({ activeTab, lang, onTabChange }: NavbarProps) {
 
   const items: { id: ActiveTab; label: string; icon: any }[] = [
     { id: 'home', label: t.nav.home, icon: Home },
+    { id: 'candidate-brain', label: lang === 'FR' ? 'Cerveau IA' : 'SHANA Brain', icon: Brain },
     { id: 'train', label: t.nav.train, icon: Mic },
     { id: 'discoveries', label: (t.nav as any).discoveries || 'Discoveries', icon: Compass },
     { id: 'assessment', label: t.nav.assessment, icon: Video },
@@ -107,7 +108,7 @@ export default function Navbar({ activeTab, lang, onTabChange }: NavbarProps) {
       </div>
  
       {/* Floating Bottom Nav for Mobile viewports */}
-      <div className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t-[2.5px] border-stone-950 py-2.5 px-4 shadow-[0_-4px_20px_rgba(0,0,0,0.02)] z-50 flex justify-around items-center">
+      <div className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t-[2.5px] border-stone-950 py-2 px-3 shadow-[0_-4px_20px_rgba(0,0,0,0.02)] z-50 flex items-center justify-between gap-1 overflow-x-auto scrollbar-none">
         {items.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -116,21 +117,21 @@ export default function Navbar({ activeTab, lang, onTabChange }: NavbarProps) {
               key={item.id}
               id={`nav-tab-mobile-${item.id}`}
               onClick={() => onTabChange(item.id)}
-              className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl cursor-pointer ${
-                isActive ? 'bg-[#A7F3D0] border border-stone-950 shadow-[1px_1px_0px_0px_#111111]' : ''
+              className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl flex-shrink-0 cursor-pointer min-w-[54px] transition-all ${
+                isActive ? 'bg-[#A7F3D0] border border-stone-950 shadow-[1px_1px_0px_0px_#111111]' : 'border border-transparent'
               }`}
             >
               {item.id === 'profile' && profilePicture ? (
                 <img 
                   src={profilePicture} 
                   alt="Avatar" 
-                  className="w-5 h-5 rounded-full object-cover border border-stone-950"
+                  className="w-4.5 h-4.5 rounded-full object-cover border border-stone-950"
                   referrerPolicy="no-referrer"
                 />
               ) : (
-                <Icon className={`w-5 h-5 ${isActive ? 'text-stone-950' : 'text-stone-400'}`} />
+                <Icon className={`w-4.5 h-4.5 ${isActive ? 'text-stone-950' : 'text-stone-400'}`} />
               )}
-              <span className={`text-[9px] mt-1 font-black leading-none capitalize tracking-wider ${
+              <span className={`text-[8.5px] mt-1 font-black leading-none uppercase tracking-wider ${
                 isActive ? 'text-stone-950' : 'text-stone-500'
               }`}>
                 {item.label}

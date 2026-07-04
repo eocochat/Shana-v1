@@ -45,7 +45,7 @@ export interface Profile {
   avatarUrl?: string;
 }
 
-export type ActiveTab = 'home' | 'train' | 'assessment' | 'history' | 'profile' | 'admin' | 'purchase' | 'discoveries';
+export type ActiveTab = 'home' | 'train' | 'assessment' | 'history' | 'profile' | 'admin' | 'purchase' | 'discoveries' | 'candidate-brain';
 
 export interface QuestionFeedbackItem {
   phaseLabel: string;

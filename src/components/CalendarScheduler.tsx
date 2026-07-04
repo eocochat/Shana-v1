@@ -239,6 +239,19 @@ export default function CalendarScheduler({ user, history, lang }: CalendarSched
       return;
     }
 
+    // Prevent duplicating the exact same time slot
+    const isDuplicate = scheduled.some(item => {
+      return new Date(item.dateTime).getTime() === d.getTime();
+    });
+
+    if (isDuplicate) {
+      toast.show(
+        isFr ? "Ce créneau horaire est déjà programmé dans votre agenda." : "This time slot is already scheduled in your agenda.",
+        'warning'
+      );
+      return;
+    }
+
     const newSession: ScheduledSession = {
       id: 'sch_' + Math.random().toString(36).substring(2, 9),
       dateTime: d.toISOString(),

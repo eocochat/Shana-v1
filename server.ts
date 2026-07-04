@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import { GoogleGenAI, Type } from "@google/genai";
+const Type = { OBJECT: "OBJECT", STRING: "STRING", ARRAY: "ARRAY", INTEGER: "INTEGER" };
 import { createRequire } from "module";
 const esmRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
 import * as pdfParseModule from "pdf-parse";
@@ -25,6 +25,7 @@ import v1Router from "./server/router/v1Router";
 import { inputSanitizerMiddleware } from "./server/security/SecurityManager";
 import { DeploymentSystem } from "./server/services/DeploymentSystem.js";
 import { ExperimentationSystem } from "./server/services/ExperimentationSystem.js";
+import { ConversationDirector } from "./src/lib/conversation/conversationDirector";
 
 dotenv.config();
 
@@ -32,86 +33,103 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-});
-
-// Robust wrapper around ai.models.generateContent with exponential backoff and model fallback
+// Robust wrapper around OpenAI completions with exponential backoff
 async function generateContentWithRetry(params: any): Promise<any> {
   const maxRetries = 3;
-  const modelsToTry = [params.model || "gemini-3.5-flash", "gemini-3.1-flash-lite"];
   const startTime = Date.now();
+  const openAIKey = ConfigResolver.getOpenAIKey();
 
-  for (const modelName of modelsToTry) {
-    let delay = 1000;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  if (!openAIKey) {
+    throw new Error("OpenAI API Key is missing. Please configure it in your environment settings.");
+  }
+
+  // Parse prompt and system instructions
+  let systemInstruction = params.config?.systemInstruction || "You are a helpful AI assistant.";
+  let userContent = "";
+
+  if (typeof params.contents === "string") {
+    userContent = params.contents;
+  } else if (params.contents && Array.isArray(params.contents.parts)) {
+    // Handle parts if present
+    const textParts = params.contents.parts.filter((p: any) => p.text).map((p: any) => p.text);
+    userContent = textParts.join("\n");
+  } else if (params.contents && typeof params.contents === "object") {
+    userContent = JSON.stringify(params.contents);
+  }
+
+  // Ensure JSON instruction is present in system prompt if responseMimeType is json
+  if (params.config?.responseMimeType === "application/json" && !systemInstruction.toLowerCase().includes("json")) {
+    systemInstruction += "\n\nCRITICAL: Your response must be a valid, well-formed JSON object.";
+  }
+
+  let delay = 1000;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[SHANA Server] Attempting OpenAI GPT-4o-mini call (Attempt ${attempt}/${maxRetries})`);
+      
+      const headers: any = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openAIKey}`,
+      };
+
+      const body: any = {
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemInstruction },
+          { role: "user", content: userContent }
+        ],
+        temperature: params.config?.temperature ?? 0.3,
+      };
+
+      if (params.config?.responseMimeType === "application/json") {
+        body.response_format = { type: "json_object" };
+      }
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI HTTP Error ${response.status}: ${errorText}`);
+      }
+
+      const json = await response.json();
+      const outputText = json.choices[0].message.content || "";
+      const duration = Date.now() - startTime;
+
+      // Log metrics/telemetry using ProviderMonitor and UsageAnalyticsEngine
       try {
-        console.log(`[SHANA Server] Attempting Gemini call with model: ${modelName} (Attempt ${attempt}/${maxRetries})`);
-        const result = await ai.models.generateContent({
-          ...params,
-          model: modelName
+        const totalTokens = json.usage?.total_tokens || Math.floor(outputText.length / 4 + userContent.length / 4);
+        ProviderMonitor.trackOpenAIEvent('/api/generateContent', 'gpt-4o-mini', totalTokens, duration, true, {
+          feature: 'completions',
+          responseLength: outputText.length
         });
-        const duration = Date.now() - startTime;
-        
-        // Dynamic Token Estimation
-        const inputTokens = params.contents ? JSON.stringify(params.contents).length / 4 : 500;
-        const outputText = result.text || "";
-        const outputTokens = outputText.length / 4;
-        const totalTokens = Math.floor(inputTokens + outputTokens);
+        UsageAnalyticsEngine.trackCall('openai', '/api/generateContent', duration, true, totalTokens);
+        LogAggregator.log('openai', 'info', 'completions', `Completions generated successfully using GPT-4o-mini in ${duration}ms. Tokens: ${totalTokens}`);
+      } catch (e) {
+        console.error('[Telemetry] Failed to log OpenAI success event:', e);
+      }
 
-        // Record metrics dynamically
-        try {
-          ProviderMonitor.trackOpenAIEvent('/api/generateContent', modelName, totalTokens, duration, true, {
-            feature: 'completions',
-            responseLength: outputText.length
-          });
-          UsageAnalyticsEngine.trackCall('openai', '/api/generateContent', duration, true, totalTokens);
-          LogAggregator.log('openai', 'info', 'completions', `Completions generated successfully using ${modelName} in ${duration}ms. Tokens: ${totalTokens}`);
-        } catch (e) {
-          console.error('[Telemetry] Failed to log AI success event:', e);
-        }
+      // Return structure compatible with the rest of the code: { text: "..." }
+      return {
+        text: outputText
+      };
 
-        return result;
-      } catch (err: any) {
-        const errMessage = err?.message || String(err);
-        const isTransient = errMessage.includes("503") || 
-                            errMessage.includes("UNAVAILABLE") || 
-                            errMessage.includes("high demand") || 
-                            errMessage.includes("ResourceExhausted") ||
-                            errMessage.includes("429");
-        
-        console.warn(`[SHANA Server] Gemini attempt ${attempt} failed with model ${modelName}:`, errMessage);
-
-        if (attempt < maxRetries && isTransient) {
-          console.log(`[SHANA Server] Waiting ${delay}ms before retrying...`);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          delay *= 2; // Exponential backoff
-        } else {
-          // Break to try the next fallback model if we run out of retries or if it's not a transient error
-          break;
-        }
+    } catch (err: any) {
+      console.warn(`[SHANA Server] OpenAI attempt ${attempt} failed:`, err?.message || String(err));
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        delay *= 2;
+      } else {
+        throw err;
       }
     }
   }
-  
-  const duration = Date.now() - startTime;
-  try {
-    ProviderMonitor.trackOpenAIEvent('/api/generateContent', 'gemini-3.5-flash', 0, duration, false, {
-      failureReason: 'All fallback models and retry thresholds exhausted.'
-    });
-    UsageAnalyticsEngine.trackCall('openai', '/api/generateContent', duration, false);
-    ErrorTracker.track('ai', 'AI generation service failed: all models and retries exhausted.', 'high');
-    LogAggregator.log('openai', 'error', 'completions', 'Critical AI completions failure: all models and retries exhausted.');
-  } catch (e) {
-    console.error('[Telemetry] Failed to log AI failure event:', e);
-  }
 
-  throw new Error("Gemini API call failed after retrying and trying fallback models.");
+  throw new Error("OpenAI API call failed after retrying.");
 }
 
 // Helper to extract text from file uploads
@@ -413,7 +431,7 @@ app.post("/api/auth/logout", (req, res) => {
   return res.json({ success: true });
 });
 
-// POST endpoint for Job Scraping and Analysis via Gemini
+// POST endpoint for Job Scraping and Analysis via OpenAI
 app.post("/api/analyze-job", async (req, res) => {
   const { jobUrl, jobDescription, currentProfile } = req.body;
   let jobText = jobDescription || "";
@@ -471,115 +489,54 @@ Return the response EXACTLY as a JSON object matching this schema:
 }`;
 
   const openAIKey = ConfigResolver.getOpenAIKey();
-  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
 
-  if (openAIKey) {
-    console.log("[SHANA Server] Attempting primary job description analysis via OpenAI GPT-4o-mini...");
-    try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openAIKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemPrompt },
-            {
-              role: "user",
-              content: `Current Candidate Profile:
+  if (!openAIKey) {
+    return res.status(500).json({ error: "OpenAI API Key is missing. Please configure it in your environment settings." });
+  }
+
+  console.log("[SHANA Server] Attempting job description analysis via OpenAI GPT-4o-mini...");
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openAIKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `Current Candidate Profile:
 - Target Role: ${currentProfile?.targetRole || "Not specified"}
 - Industry: ${currentProfile?.industry || "Not specified"}
 - Experience Level: ${currentProfile?.experienceLevel || "Not specified"}
 
 Target Job Post Text/HTML:
 ${jobText.substring(0, 45000)}`,
-            },
-          ],
-          temperature: 0.2,
-        }),
-      });
-
-      if (response.ok) {
-        const json = await response.json();
-        const data = JSON.parse(json.choices[0].message.content);
-        return res.json({ success: true, data });
-      } else {
-        const errorText = await response.text();
-        console.warn("[SHANA Server] OpenAI job analysis call returned non-200 state, trying fallback...", errorText);
-      }
-    } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI primary job analysis error, falling back to Gemini:", openaiError);
-    }
-  }
-
-  try {
-    if (!hasGeminiKey) {
-      throw new Error("No Gemini API Key available.");
-    }
-    const response = await generateContentWithRetry({
-      model: "gemini-3.5-flash",
-      contents: `Current Candidate Profile:
-- Target Role: ${currentProfile?.targetRole || "Not specified"}
-- Industry: ${currentProfile?.industry || "Not specified"}
-- Experience Level: ${currentProfile?.experienceLevel || "Not specified"}
-
-Target Job Post Text/HTML:
-${jobText.substring(0, 45000)}`, // Truncate to avoid token limits
-      config: {
-        systemInstruction: systemPrompt,
-        temperature: 0.2,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            targetRole: { type: Type.STRING },
-            industry: { type: Type.STRING },
-            experienceLevel: { type: Type.STRING },
-            requiredSkills: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING }
-            },
-            jobDescriptionSummary: { type: Type.STRING },
-            profileGapAnalysis: { type: Type.STRING },
-            recommendations: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING }
-            },
-            suggestedProfileAdjustments: {
-              type: Type.OBJECT,
-              properties: {
-                targetRole: { type: Type.STRING },
-                industry: { type: Type.STRING },
-                experienceLevel: { type: Type.STRING }
-              },
-              required: ["targetRole", "industry", "experienceLevel"]
-            }
           },
-          required: [
-            "targetRole", "industry", "experienceLevel", "requiredSkills",
-            "jobDescriptionSummary", "profileGapAnalysis", "recommendations",
-            "suggestedProfileAdjustments"
-          ]
-        }
-      }
+        ],
+        temperature: 0.2,
+      }),
     });
 
-    const outputText = response?.text;
-    if (!outputText) {
-      throw new Error("No output text received from Gemini.");
+    if (response.ok) {
+      const json = await response.json();
+      const data = JSON.parse(json.choices[0].message.content);
+      return res.json({ success: true, data });
+    } else {
+      const errorText = await response.text();
+      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
     }
-    const data = JSON.parse(outputText);
-    return res.json({ success: true, data });
   } catch (error: any) {
-    console.error("[SHANA Server] Job analysis failed:", error);
+    console.error("[SHANA Server] OpenAI job analysis failed:", error);
     return res.status(500).json({ error: error.message || "Failed to analyze job post." });
   }
 });
 
-// API endpoint for CV analysis via OpenAI (with Gemini fallback)
+// API endpoint for CV analysis via OpenAI
 app.post("/api/analyze", async (req, res) => {
   const { text, file, userId } = req.body;
   if ((!text || !text.trim()) && (!file || !file.data)) {
@@ -632,9 +589,7 @@ Return the response exactly as a well-formed JSON object matching this schema:
 }`;
 
   const openAIKey = ConfigResolver.getOpenAIKey();
-  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
 
-  // 1. Try OpenAI first if configured
   if (openAIKey) {
     console.log("[SHANA Server] Attempting primary CV analysis via OpenAI GPT-4o-mini...");
     try {
@@ -664,91 +619,10 @@ Return the response exactly as a well-formed JSON object matching this schema:
         return res.json({ provider: "OpenAI", data: parsedContent });
       } else {
         const errorText = await response.text();
-        console.warn("[SHANA Server] OpenAI analysis call returned non-200 state, trying fallback...", errorText);
+        console.warn("[SHANA Server] OpenAI analysis call returned non-200 state, trying heuristic fallback...", errorText);
       }
     } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI primary analysis error, falling back to Gemini:", openaiError);
-    }
-  }
-
-  // 2. Try Gemini fallback next if available
-  if (hasGeminiKey) {
-    console.log("[SHANA Server] Running secondary CV analysis with Gemini API...");
-    try {
-      let contents: any;
-      const isPdf = file && file.data && (file.mimeType.includes("pdf") || file.name.endsWith(".pdf"));
-      if (isPdf) {
-        contents = {
-          parts: [
-            {
-              inlineData: {
-                mimeType: "application/pdf",
-                data: file.data
-              }
-            },
-            {
-              text: `Please analyze the attached CV PDF and generate the career profile and interview blueprint. Text context: ${cvText}`
-            }
-          ]
-        };
-      } else {
-        contents = `Please analyze this CV content:\n\n${cvText}`;
-      }
-
-      const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
-        contents,
-        config: {
-          systemInstruction: systemPrompt,
-          temperature: 0.1,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              role: { type: Type.STRING },
-              industry: { type: Type.STRING },
-              experienceYears: { type: Type.INTEGER },
-              skills: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              },
-              summary: { type: Type.STRING },
-              strengths: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              },
-              risks: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              },
-              behavioralWeight: { type: Type.INTEGER },
-              roleWeight: { type: Type.INTEGER },
-              industryWeight: { type: Type.INTEGER },
-              resumeWeight: { type: Type.INTEGER },
-              primaryFocus: { type: Type.STRING },
-              secondaryFocus: { type: Type.STRING },
-              difficulty: { type: Type.STRING },
-              recommendedSessions: { type: Type.INTEGER }
-            },
-            required: [
-              "role", "industry", "experienceYears", "skills", "summary", 
-              "strengths", "risks", "behavioralWeight", "roleWeight", 
-              "industryWeight", "resumeWeight", "primaryFocus", "secondaryFocus", 
-              "difficulty", "recommendedSessions"
-            ]
-          }
-        }
-      });
-
-      const textOutput = response?.text;
-      if (!textOutput) {
-        throw new Error("No text output returned from Gemini AI");
-      }
-
-      const parsedContent = JSON.parse(textOutput);
-      return res.json({ provider: "Gemini", data: parsedContent });
-    } catch (gemError: any) {
-      console.error("[SHANA Server] Gemini secondary analysis stage failed, falling back to Heuristics:", gemError);
+      console.error("[SHANA Server] OpenAI primary analysis error, falling back to heuristics:", openaiError);
     }
   }
 
@@ -970,9 +844,7 @@ CRITICAL OPERATING SPECIFICATIONS:
 `;
 
   const openAIKey = ConfigResolver.getOpenAIKey();
-  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
 
-  // 1. Try OpenAI first if configured
   if (openAIKey) {
     console.log("[SHANA Server] Calling primary OpenAI Chat Completion for voice training chat...");
     try {
@@ -1021,59 +893,10 @@ CRITICAL OPERATING SPECIFICATIONS:
         return res.json({ response: reply.trim() });
       } else {
         const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI training chat returned non-200 state, trying fallback...", errText);
+        console.warn("[SHANA Server] OpenAI training chat returned non-200 state, trying heuristic fallback...", errText);
       }
     } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI training chat failed, falling back to Gemini:", openaiError);
-    }
-  }
-
-  // 2. Try Gemini fallback next if available
-  if (hasGeminiKey) {
-    console.log("[SHANA Server] Calling Gemini API for voice training chat...");
-    try {
-      const contents = [];
-      for (const msg of chatHistory || []) {
-        if (msg && msg.text) {
-          contents.push({
-            role: msg.role === "ai" ? "model" : "user",
-            parts: [{ text: msg.text }]
-          });
-        }
-      }
-
-      if (userInput && userInput.trim()) {
-        contents.push({
-          role: "user",
-          parts: [{ text: userInput.trim() }]
-        });
-      } else if (contents.length === 0) {
-        const greetText = language === 'French' || language === 'FR'
-          ? `Lançons la session d'entraînement pour le poste de ${targetRole} dans le secteur ${industry}. salue-moi et pose-moi la première question personnalisée basée sur mes antécédents.`
-          : `Start the coaching training session for the ${targetRole} role in the ${industry} industry. Please greet me warmly and ask the first highly tailored question referencing my background.`;
-        contents.push({
-          role: "user",
-          parts: [{ text: greetText }]
-        });
-      }
-
-      const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
-        contents: contents,
-        config: {
-          systemInstruction: systemPrompt,
-          temperature: 0.8
-        }
-      });
-
-      const textOutput = response?.text;
-      if (!textOutput) {
-        throw new Error("No output text received from Gemini API");
-      }
-
-      return res.json({ response: textOutput.trim() });
-    } catch (gemError: any) {
-      console.error("[SHANA Server] Gemini voice training chat failed, falling back to heuristics:", gemError);
+      console.error("[SHANA Server] OpenAI training chat failed, falling back to heuristics:", openaiError);
     }
   }
 
@@ -1125,9 +948,7 @@ CRITICAL DIRECTIVES:
 4. Speak in the selected language: ${language === 'French' || language === 'FR' ? 'French' : 'English'}.`;
 
   const apiKey = ConfigResolver.getOpenAIKey();
-  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
 
-  // 1. Try OpenAI first if configured
   if (apiKey) {
     console.log("[SHANA Server] Generating voice training review with OpenAI API...");
     const openAISystemPrompt = `${systemPrompt}\n\nYou must return the output EXACTLY as a well-formed JSON object matching this schema:
@@ -1166,45 +987,10 @@ CRITICAL DIRECTIVES:
         return res.json({ data: parsed });
       } else {
         const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI train review call returned non-200 state, trying fallback...", errText);
+        console.warn("[SHANA Server] OpenAI train review call returned non-200 state, trying heuristic fallback...", errText);
       }
     } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI voice training review failed, falling back to Gemini:", openaiError);
-    }
-  }
-
-  // 2. Try Gemini fallback next if available
-  if (hasGeminiKey) {
-    console.log("[SHANA Server] Generating voice training review with Gemini API...");
-    try {
-      const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
-        contents: `Please review this training session dialogue log:\n\n${JSON.stringify(chatHistory)}`,
-        config: {
-          systemInstruction: systemPrompt,
-          temperature: 0.3,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              strength: { type: Type.STRING },
-              improvement: { type: Type.STRING },
-              suggestedExercise: { type: Type.STRING }
-            },
-            required: ["strength", "improvement", "suggestedExercise"]
-          }
-        }
-      });
-
-      const textOutput = response?.text;
-      if (!textOutput) {
-        throw new Error("No output text received from Gemini API");
-      }
-
-      const parsed = JSON.parse(textOutput);
-      return res.json({ data: parsed });
-    } catch (gemError: any) {
-      console.error("[SHANA Server] Gemini voice training review failed, falling back to heuristics:", gemError);
+      console.error("[SHANA Server] OpenAI voice training review failed, falling back to heuristics:", openaiError);
     }
   }
 
@@ -1233,7 +1019,7 @@ CRITICAL DIRECTIVES:
   });
 });
 
-// API endpoint for real-time live interview simulation via Gemini (and OpenAI fallback)
+// API endpoint for real-time live interview simulation via OpenAI
 app.post("/api/interview/chat", async (req, res) => {
   const { chatHistory, userInput, profile, blueprint, cvAnalysis, history, surpriseConfig, adaptation } = req.body;
 
@@ -1272,91 +1058,43 @@ app.post("/api/interview/chat", async (req, res) => {
         if (sess.weakness) trainingContext += `  * Documented Weakness: ${sess.weakness}\n`;
         if (sess.recommendation) trainingContext += `  * Documented Recommendation: ${sess.recommendation}\n`;
       });
-      trainingContext += `\nINSTRUCTION: You must actively review their training history, specifically targeting their documented weaknesses (e.g. speaking tempo, structured answers, clarity issues, or technical gaps) to see if they can demonstrate improvement. Craft questions that help them practice and prove they have overcome these weaknesses.`;
+      trainingContext += `\nINSTRUCTION: Target their documented weaknesses to see if they demonstrate improvement.`;
     }
   }
 
-  let surpriseDirective = "";
-  if (surpriseConfig) {
-    surpriseDirective = `\n\n[SURPRISE CHALLENGE CONFIGURATION]:
-- Recruiter Personality Type: ${surpriseConfig.personality?.nameEN || 'Standard'}
-- Question style: ${surpriseConfig.style?.nameEN || 'Standard'}
-- Format: ${surpriseConfig.format || 'Standard'}
+  const cvContextCombined = cvContext + trainingContext;
 
-CRITICAL PERSONALITY RULES:
-`;
-    if (surpriseConfig.personality?.id === 'friendly') {
-      surpriseDirective += `* You must act as an extremely warm, encouraging, conversational, and supportive recruiter. Use comforting phrases and positive affirmations.`;
-    } else if (surpriseConfig.personality?.id === 'fast') {
-      surpriseDirective += `* You must act as a rapid-fire, high-velocity, extremely crisp recruiter. Keep your own questions very short, sharp, and direct. Move the user fast to the next logical point.`;
-    } else if (surpriseConfig.personality?.id === 'silent') {
-      surpriseDirective += `* You must act as an extremely quiet, reserved, professional, and poker-faced recruiter. Offer zero praise, do not say "Great!", and use deliberate probing questions to fill silence.`;
-    } else if (surpriseConfig.personality?.id === 'pressure') {
-      surpriseDirective += `* You must act as a strict, high-pressure, defensive interviewer. Actively point out any gaps or vague metrics in the user's answers and challenge them to justify their outcomes.`;
-    }
+  // Retrieve or initialize conversation state
+  const sessionStateId = blueprint?.id || "temp_session";
+  const personalityId = surpriseConfig?.personality?.id || "corporate";
 
-    surpriseDirective += `\nCRITICAL STYLE RULES:\n`;
-    if (surpriseConfig.style?.id === 'trick') {
-      surpriseDirective += `* Focus your questions on brain-teasers, situational lateral thinking riddles, and complex scenario-traps designed to test their mental agility.`;
-    } else if (surpriseConfig.style?.id === 'scenario') {
-      surpriseDirective += `* Structure questions entirely around high-impact realistic business emergencies, crisis scenarios, or team conflicts.`;
-    } else if (surpriseConfig.style?.id === 'technical') {
-      surpriseDirective += `* Focus completely on deep, low-level system design, edge cases, algorithmic scale limits, and quantitative correctness.`;
-    } else if (surpriseConfig.style?.id === 'competency') {
-      surpriseDirective += `* Focus systematically on high-level corporate competencies such as leadership, cross-team influence, resource trade-offs, and priority matrix management.`;
-    }
+  let conversationState = req.body.conversationState;
+  if (!conversationState) {
+    conversationState = ConversationDirector.initializeState(sessionStateId, personalityId);
   }
 
-  const systemPrompt = `You are a strict, professional AI Job Interviewer for the role of ${targetRole} in the ${industry} industry. 
-Your tone must be realistic, direct, professional, and completely objective. 
+  const elapsedTurnSeconds = req.body.elapsedTurnSeconds || 0;
 
-CRITICAL DIRECTIVES:
-1. You behave ONLY as an interviewer. 
-2. Ask exactly ONE clear interview question at a time. Do not compile lists of questions.
-3. You must NOT provide any coaching, feedback, suggestions, scoring, or training analysis. 
-4. Do not evaluate their response or say "Great answer!" or "That is correct." Just proceed directly as a professional interviewer would.
-5. Dig deeper into their previous answers if appropriate (e.g., probe for technical implementation details, project scale, specific STAR metrics, or lessons learned).
-6. Stay extremely aligned with the candidate's target role (Difficulty: ${difficulty}, Experience Level: ${experienceYears} years), and industry.
-7. Conduct a natural progression of a job interview: starting with introductions, moving into deep-dive technical/role-specific or behavioral questions, and then wrapping up after 5-6 questions of interactive dialogue.
-8. Provide full, complete, and thoroughly detailed interview questions and dialogue. Do not place any artificial limitations on your sentence length or quantity per turn. Ensure every sentence is fully complete, informative, and beautifully phrased. 
-9. Speak exclusively in ${language === "English" || language === "EN" ? "English" : "French"}. If the user speaks a different language, gently guide them back to ${language === "English" || language === "EN" ? "English" : "French"}.
-   ${language === "French" || language === "FR" || language === "fr" ? `CRITICAL LANGUAGE REGISTER RULE: When speaking or writing in French, you must use a simple, direct, natural, and modern register (Français simple mais professionnel et technique). Avoid overly literary, academic, or high-brow expressions (do not use "trop soutenu" or "ampoulé" French). Instead, focus on direct technical terms, action verbs, and key industry vocabulary (mots-clés). Write clear, concise sentences that sound natural when spoken.` : ''}${surpriseDirective}${cvContext}${trainingContext}`;
-
-  // Live Adaptive Instructions Proxy
-  let adaptationDirective = "";
-  if (adaptation && typeof adaptation === 'object') {
-    const { path, difficulty: adDifficulty, struggleFlags, recoveryMode, smartChallenge } = adaptation;
-    adaptationDirective = `\n\n[MANDATORY ADAPTIVE INTERVIEW ENGINE LIVE INSTRUCTIONS]:
-- Core Learning Path: ${path || 'Balanced'}
-- Active Difficulty: ${adDifficulty || 'Normal'}
-`;
-    if (recoveryMode) {
-      adaptationDirective += `\n* RECOVERY MODE ACTIVE: The candidate's confidence recently dropped. You MUST maintain a supportive, warmer, and slightly less aggressive posture. Ensure questions are clear and designed to rebuild conversational momentum.`;
-    }
-    if (struggleFlags?.lack_structure) {
-      adaptationDirective += `\n* LACK STRUCTURE: Challenge the user with structured questions (e.g. behavioral STAR queries). Probe them if their answer lacks a clear timeline or direct metrics.`;
-    }
-    if (struggleFlags?.excels_under_pressure) {
-      adaptationDirective += `\n* EXCELS UNDER PRESSURE: Show high professional skepticism, drill deep into their numbers, or push back aggressively on their strategic decisions.`;
-    }
-    if (struggleFlags?.too_long) {
-      adaptationDirective += `\n* TOO VERBOSE: Challenge them to keep their answers concise. Explicitly ask them to summarize their main point or answer in 30 seconds or under 3 sentences.`;
-    }
-    if (smartChallenge) {
-      adaptationDirective += `\n* ACTIVE SMART CHALLENGE: Execute a '${smartChallenge.type}' moment if relevant to the context. Prompt the user directly on this constraint.`;
-    }
-  }
-
-  const systemPromptWithAdaptation = systemPrompt + adaptationDirective;
+  // Process turn using Conversation Intelligence Engine
+  const { updatedState, plannedSystemPrompt, interruptionPreface } = ConversationDirector.processCandidateTurn(
+    conversationState,
+    userInput || "",
+    targetRole,
+    industry,
+    language,
+    cvContextCombined,
+    difficulty,
+    true, // manual submit
+    elapsedTurnSeconds,
+    6 // total expected questions
+  );
 
   const openAIKey = ConfigResolver.getOpenAIKey();
-  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
 
-  // 1. Try OpenAI first if configured
   if (openAIKey) {
-    console.log("[SHANA Server] Calling primary OpenAI Chat Completion API for interview simulation...");
+    console.log("[SHANA Server] Calling primary OpenAI Chat Completion API via Conversation Intelligence Engine...");
     try {
-      const messages = [{ role: "system", content: systemPromptWithAdaptation }];
+      const messages = [{ role: "system", content: plannedSystemPrompt }];
 
       for (const msg of chatHistory || []) {
         if (msg && msg.text) {
@@ -1394,72 +1132,61 @@ CRITICAL DIRECTIVES:
 
       if (response.ok) {
         const json = await response.json();
-        const reply = json.choices[0].message.content;
-        return res.json({ response: reply.trim() });
+        let reply = json.choices[0].message.content;
+
+        // Prefix with polite interruption phrase if triggered
+        if (interruptionPreface && !reply.toLowerCase().includes(interruptionPreface.toLowerCase().substring(0, 15))) {
+          reply = `${interruptionPreface}\n\n${reply}`;
+        }
+
+        const finalState = ConversationDirector.recordAIResponse(updatedState, reply);
+
+        // Track metrics
+        const duration = 150;
+        UsageAnalyticsEngine.trackCall('openai', '/api/generateContent', duration, true, 450);
+
+        // Calculate Phase 22.1 Natural Thinking Delay
+        let thinkingDelayMs = 500;
+        if (updatedState.currentTurn <= 1) {
+          thinkingDelayMs = Math.floor(Math.random() * (400 - 200 + 1)) + 200; // 200-400ms (Simple acknowledgement)
+        } else if (updatedState.selfReflection?.repetitivenessWarning || updatedState.pressureLevel === 'Stress' || updatedState.pressureLevel === 'Demanding') {
+          thinkingDelayMs = Math.floor(Math.random() * (1200 - 700 + 1)) + 700; // 700-1200ms (Complex reasoning)
+        } else {
+          thinkingDelayMs = Math.floor(Math.random() * (700 - 400 + 1)) + 400; // 400-700ms (Normal follow-up)
+        }
+
+        // Apply physical delay
+        await new Promise(r => setTimeout(r, thinkingDelayMs));
+
+        return res.json({ response: reply.trim(), conversationState: finalState, thinkingDelayMs });
       } else {
         const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI interview conversation returned non-200 state, trying fallback...", errText);
+        console.warn("[SHANA Server] OpenAI returned non-200 state, trying fallback...", errText);
       }
     } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI interview simulation failed, falling back to Gemini:", openaiError);
-    }
-  }
-
-  // 2. Try Gemini fallback next if available
-  if (hasGeminiKey) {
-    console.log("[SHANA Server] Calling Gemini API for interview simulation chat...");
-    try {
-      const contents = [];
-      for (const msg of chatHistory || []) {
-        if (msg && msg.text) {
-          contents.push({
-            role: msg.role === "ai" ? "model" : "user",
-            parts: [{ text: msg.text }]
-          });
-        }
-      }
-
-      if (userInput && userInput.trim()) {
-        contents.push({
-          role: "user",
-          parts: [{ text: userInput.trim() }]
-        });
-      } else if (contents.length === 0) {
-        contents.push({
-          role: "user",
-          parts: [{ text: `Let's start the interview. Please greet me in ${language === "English" || language === "EN" ? "English" : "French"} and ask the first standard interview question for ${targetRole}.` }]
-        });
-      }
-
-      const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
-        contents: contents,
-        config: {
-          systemInstruction: systemPromptWithAdaptation,
-          temperature: 0.7
-        }
-      });
-
-      const textOutput = response?.text;
-      if (!textOutput) {
-        throw new Error("No output text received from Gemini API");
-      }
-
-      return res.json({ response: textOutput.trim() });
-    } catch (gemError: any) {
-      console.error("[SHANA Server] Gemini interview simulation failed, falling back to heuristics:", gemError);
+      console.error("[SHANA Server] OpenAI interview conversation failed, falling back:", openaiError);
     }
   }
 
   // Simulation Fallback
-  console.log("[SHANA Server] No suitable API key found, running Interview Simulator chat fallback...");
+  console.log("[SHANA Server] Fallback executing inside Conversation Intelligence Engine...");
   const isFr = (language === "French" || language === "FR" || language === "fr");
-  
   const aiTurnsCount = chatHistory ? chatHistory.filter((m: any) => m.role === 'ai').length : 0;
   const targetList = getFallbackQuestions(targetRole, industry, isFr, true, primaryFocus);
-  const reply = targetList[Math.min(aiTurnsCount, targetList.length - 1)];
+  const fallbackReply = targetList[Math.min(aiTurnsCount, targetList.length - 1)];
 
-  return res.json({ response: reply });
+  const finalFallbackState = ConversationDirector.recordAIResponse(updatedState, fallbackReply);
+
+  // Fallback Thinking Delay
+  let thinkingDelayMs = 500;
+  if (updatedState.currentTurn <= 1) {
+    thinkingDelayMs = Math.floor(Math.random() * (400 - 200 + 1)) + 200;
+  } else {
+    thinkingDelayMs = Math.floor(Math.random() * (700 - 400 + 1)) + 400;
+  }
+  await new Promise(r => setTimeout(r, thinkingDelayMs));
+
+  return res.json({ response: fallbackReply, conversationState: finalFallbackState, thinkingDelayMs });
 });
 
 // API endpoint to generate next question based strictly on Context Pack
@@ -1512,7 +1239,6 @@ Guidelines for generating the question:
 `;
 
   const openAIKey = ConfigResolver.getOpenAIKey();
-  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
 
   if (openAIKey) {
     console.log("[SHANA Server] Question Engine: Calling primary OpenAI Chat Completion...");
@@ -1552,48 +1278,10 @@ Guidelines for generating the question:
         return res.json({ questionPack: parsed });
       } else {
         const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI Question generation failed, trying Gemini fallback...", errText);
+        console.warn("[SHANA Server] OpenAI Question generation failed, trying heuristic fallback...", errText);
       }
     } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI Question generation exception, trying Gemini fallback:", openaiError);
-    }
-  }
-
-  if (hasGeminiKey) {
-    console.log("[SHANA Server] Question Engine: Calling Gemini API fallback...");
-    try {
-      const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
-        contents: [
-          { role: "user", parts: [{ text: "Generate the next question based on the provided instructions." }] }
-        ],
-        config: {
-          systemInstruction: systemPrompt,
-          temperature: 0.7,
-          responseMimeType: "application/json"
-        }
-      });
-
-      const textOutput = response?.text;
-      if (textOutput) {
-        let cleaned = textOutput.trim();
-        if (cleaned.startsWith("```json")) {
-          cleaned = cleaned.substring(7);
-        } else if (cleaned.startsWith("```")) {
-          cleaned = cleaned.substring(3);
-        }
-        if (cleaned.endsWith("```")) {
-          cleaned = cleaned.substring(0, cleaned.length - 3);
-        }
-        cleaned = cleaned.trim();
-
-        const parsed = JSON.parse(cleaned);
-        return res.json({ questionPack: parsed });
-      } else {
-        throw new Error("No output text received from Gemini API");
-      }
-    } catch (gemError: any) {
-      console.error("[SHANA Server] Gemini Question generation fallback exception:", gemError);
+      console.error("[SHANA Server] OpenAI Question generation exception, falling back to heuristics:", openaiError);
     }
   }
 
@@ -1612,18 +1300,18 @@ app.post("/api/interview/evaluate", async (req, res) => {
   const targetRole = user_profile?.target_role || "Candidate";
   const language = user_profile?.language || "English";
 
-  const systemPrompt = `You are an expert, objective corporate performance assessor.
-Your only task is to evaluate the candidate's answer to the interview question consistently and objectively, and output structured JSON.
+  const systemPrompt = `You are an expert, objective, and highly rigorous corporate performance assessor.
+Your only task is to evaluate the candidate's answer to the interview question consistently and strictly, and output structured JSON.
 
 CRITICAL INSTRUCTION: You must respond ONLY with a raw JSON object matching the requested schema. No conversational prefix, no markdown formatting (such as \`\`\`json), and no text outside of the JSON object.
 
 Output Schema:
 {
-  "clarity": 70,
-  "structure": 70,
-  "confidence": 70,
-  "relevance": 70,
-  "conciseness": 70,
+  "clarity": 50,
+  "structure": 50,
+  "confidence": 50,
+  "relevance": 50,
+  "conciseness": 50,
   "strength": "One specific, concise strength observed in the candidate's response (under 25 words)",
   "improvement_area": "One specific, constructive, and actionable improvement area (under 25 words)",
   "action_tip": "One clear, highly actionable tip to improve this answer (under 25 words)",
@@ -1631,12 +1319,12 @@ Output Schema:
 }
 
 Guidelines:
-1. Objectivity & Consistency: Judge solely on the content and structure of the candidate's response. Same response must result in the same scores. No emotional scoring, no personality judgment.
+1. Objectivity & Strict Rigor: Judge solely on the content and structure of the candidate's response. You must be strict and avoid overly nice or inflated scoring. A score above 80 is strictly reserved for elite, industry-leading, near-perfect responses. Standard, okay, or brief responses must receive realistic scores in the 40s, 50s, or 60s. Low-effort or unhelpful answers should get scored in the 20s or 30s. No emotional scoring.
 2. Signal Extraction:
-   - Clarity (0-100): Articulation, ease of understanding, clear explanation of concepts.
-   - Structure (0-100): Logically ordered thoughts, ideally using STAR (Situation, Task, Action, Result) methodology.
-   - Confidence (0-100): Professional tone, authoritative assertions, minimal hesitation or filler words.
-   - Relevance (0-100): Direct alignment with the question and the target role: "${targetRole}".
+   - Clarity (0-100): Articulation, ease of understanding, clear explanation of concepts. Deduct heavily for filler words or hesitant wording.
+   - Structure (0-100): Logically ordered thoughts, ideally using STAR (Situation, Task, Action, Result) methodology. Give low scores (under 50) if STAR or sequential markers are missing.
+   - Confidence (0-100): Professional tone, authoritative assertions, minimal hesitation or tentative expressions.
+   - Relevance (0-100): Direct, explicit alignment with the question and the target role: "${targetRole}".
    - Conciseness (0-100): Avoidance of rambling, repetitive sentences, or unnecessary detail.
 3. Language constraint: All feedback text (strength, improvement_area, action_tip) must be in the candidate's language: "${language}".
 4. DO NOT calculate any total score (IPS) inside this evaluation. Leave total calculation entirely to the backend.
@@ -1655,7 +1343,6 @@ Expected Competency: "${question_context?.expected_competency || "general_perfor
 `;
 
   const openAIKey = ConfigResolver.getOpenAIKey();
-  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
 
   if (openAIKey) {
     console.log("[SHANA Server] Evaluation Engine: Calling primary OpenAI Chat Completion...");
@@ -1713,66 +1400,10 @@ Expected Competency: "${question_context?.expected_competency || "general_perfor
         return res.json({ evaluation: parsed });
       } else {
         const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI Evaluation failed, trying Gemini fallback...", errText);
+        console.warn("[SHANA Server] OpenAI Evaluation failed, trying heuristic fallback...", errText);
       }
     } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI Evaluation exception, trying Gemini fallback:", openaiError);
-    }
-  }
-
-  if (hasGeminiKey) {
-    console.log("[SHANA Server] Evaluation Engine: Calling Gemini API fallback...");
-    try {
-      const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
-        contents: [
-          { role: "user", parts: [{ text: userPrompt }] }
-        ],
-        config: {
-          systemInstruction: systemPrompt,
-          temperature: 0.1,
-          responseMimeType: "application/json"
-        }
-      });
-
-      const textOutput = response?.text;
-      if (textOutput) {
-        let cleaned = textOutput.trim();
-        if (cleaned.startsWith("```json")) {
-          cleaned = cleaned.substring(7);
-        } else if (cleaned.startsWith("```")) {
-          cleaned = cleaned.substring(3);
-        }
-        if (cleaned.endsWith("```")) {
-          cleaned = cleaned.substring(0, cleaned.length - 3);
-        }
-        cleaned = cleaned.trim();
-
-        const parsed = JSON.parse(cleaned);
-
-        // Step 4: Backend computed IPS
-        const clarity = Number(parsed.clarity) || 70;
-        const structure = Number(parsed.structure) || 70;
-        const confidence = Number(parsed.confidence) || 70;
-        const relevance = Number(parsed.relevance) || 70;
-        const conciseness = Number(parsed.conciseness) || 70;
-
-        const ips_total = Math.round(
-          (clarity * 0.25) +
-          (structure * 0.25) +
-          (confidence * 0.20) +
-          (relevance * 0.20) +
-          (conciseness * 0.10)
-        );
-
-        parsed.ips_total = ips_total;
-
-        return res.json({ evaluation: parsed });
-      } else {
-        throw new Error("No output text received from Gemini API");
-      }
-    } catch (gemError: any) {
-      console.error("[SHANA Server] Gemini Evaluation fallback exception:", gemError);
+      console.error("[SHANA Server] OpenAI Evaluation exception, falling back to heuristics:", openaiError);
     }
   }
 
@@ -1842,7 +1473,6 @@ Recent Feedback Notes: Strength="${recent_feedback?.strength || ""}", Improvemen
 `;
 
   const openAIKey = ConfigResolver.getOpenAIKey();
-  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
 
   if (openAIKey) {
     console.log("[SHANA Server] Adaptation Engine: Calling primary OpenAI Chat Completion...");
@@ -1882,48 +1512,10 @@ Recent Feedback Notes: Strength="${recent_feedback?.strength || ""}", Improvemen
         return res.json({ adaptation: parsed });
       } else {
         const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI Adaptation failed, trying Gemini fallback...", errText);
+        console.warn("[SHANA Server] OpenAI Adaptation failed, trying heuristic fallback...", errText);
       }
     } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI Adaptation exception, trying Gemini fallback:", openaiError);
-    }
-  }
-
-  if (hasGeminiKey) {
-    console.log("[SHANA Server] Adaptation Engine: Calling Gemini API fallback...");
-    try {
-      const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
-        contents: [
-          { role: "user", parts: [{ text: userPrompt }] }
-        ],
-        config: {
-          systemInstruction: systemPrompt,
-          temperature: 0.1,
-          responseMimeType: "application/json"
-        }
-      });
-
-      const textOutput = response?.text;
-      if (textOutput) {
-        let cleaned = textOutput.trim();
-        if (cleaned.startsWith("```json")) {
-          cleaned = cleaned.substring(7);
-        } else if (cleaned.startsWith("```")) {
-          cleaned = cleaned.substring(3);
-        }
-        if (cleaned.endsWith("```")) {
-          cleaned = cleaned.substring(0, cleaned.length - 3);
-        }
-        cleaned = cleaned.trim();
-
-        const parsed = JSON.parse(cleaned);
-        return res.json({ adaptation: parsed });
-      } else {
-        throw new Error("No output text received from Gemini API");
-      }
-    } catch (gemError: any) {
-      console.error("[SHANA Server] Gemini Adaptation fallback exception:", gemError);
+      console.error("[SHANA Server] OpenAI Adaptation exception, falling back to heuristics:", openaiError);
     }
   }
 
@@ -1992,7 +1584,6 @@ Evaluation History (last sessions/questions): ${JSON.stringify(evaluation_histor
 `;
 
   const openAIKey = ConfigResolver.getOpenAIKey();
-  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
 
   if (openAIKey) {
     console.log("[SHANA Server] Insight Engine: Calling primary OpenAI Chat Completion...");
@@ -2032,48 +1623,10 @@ Evaluation History (last sessions/questions): ${JSON.stringify(evaluation_histor
         return res.json({ insightPack: parsed });
       } else {
         const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI Insight generation failed, trying Gemini fallback...", errText);
+        console.warn("[SHANA Server] OpenAI Insight generation failed, trying heuristic fallback...", errText);
       }
     } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI Insight generation exception, trying Gemini fallback:", openaiError);
-    }
-  }
-
-  if (hasGeminiKey) {
-    console.log("[SHANA Server] Insight Engine: Calling Gemini API fallback...");
-    try {
-      const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
-        contents: [
-          { role: "user", parts: [{ text: userPrompt }] }
-        ],
-        config: {
-          systemInstruction: systemPrompt,
-          temperature: 0.1,
-          responseMimeType: "application/json"
-        }
-      });
-
-      const textOutput = response?.text;
-      if (textOutput) {
-        let cleaned = textOutput.trim();
-        if (cleaned.startsWith("```json")) {
-          cleaned = cleaned.substring(7);
-        } else if (cleaned.startsWith("```")) {
-          cleaned = cleaned.substring(3);
-        }
-        if (cleaned.endsWith("```")) {
-          cleaned = cleaned.substring(0, cleaned.length - 3);
-        }
-        cleaned = cleaned.trim();
-
-        const parsed = JSON.parse(cleaned);
-        return res.json({ insightPack: parsed });
-      } else {
-        throw new Error("No output text received from Gemini API");
-      }
-    } catch (gemError: any) {
-      console.error("[SHANA Server] Gemini Insight generation fallback exception:", gemError);
+      console.error("[SHANA Server] OpenAI Insight generation exception, falling back to heuristics:", openaiError);
     }
   }
 
@@ -2081,7 +1634,7 @@ Evaluation History (last sessions/questions): ${JSON.stringify(evaluation_histor
   return res.json({ insightPack: null });
 });
 
-// API endpoint to generate custom assessment questions using Gemini or local fallbacks
+// API endpoint to generate custom assessment questions using OpenAI or local fallbacks
 app.post("/api/assessment/questions", async (req, res) => {
   const { profile, cvAnalysis, history, adaptation, director } = req.body;
   const targetRole = profile?.targetRole || cvAnalysis?.role || "Candidate";
@@ -2198,7 +1751,6 @@ In these trap questions, mention or refer indirectly to the difficulty they face
   ${language === "French" || language === "FR" || language === "fr" ? `CRITICAL LANGUAGE REGISTER RULE: When writing the questions in French, you must use a simple, direct, natural, and modern register (Français simple mais professionnel et technique). Avoid overly literary, academic, or high-brow expressions (do not use "trop soutenu" or "ampoulé" French). Instead, focus on direct technical terms, action verbs, and key industry vocabulary (mots-clés). Write clear, concise sentences that sound natural when spoken.` : ''}`;
 
   const openAIKey = ConfigResolver.getOpenAIKey();
-  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
 
   if (openAIKey) {
     console.log("[SHANA Server] Generating custom assessment questions via primary OpenAI...");
@@ -2250,52 +1802,11 @@ In these trap questions, mention or refer indirectly to the difficulty they face
         }
       } else {
         const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI assessment questions generation returned non-200 state, trying fallback...", errText);
+        console.warn("[SHANA Server] OpenAI assessment questions generation returned non-200 state, trying heuristic fallback...", errText);
       }
     } catch (openaiErr) {
-      console.error("[SHANA Server] OpenAI assessment questions generation failed, trying Gemini fallback:", openaiErr);
+      console.error("[SHANA Server] OpenAI assessment questions generation failed, falling back to heuristics:", openaiErr);
     }
-  }
-
-  try {
-    if (hasGeminiKey) {
-      const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
-        contents: [{ parts: [{ text: prompt }] }],
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.7
-        }
-      });
-      const textOutput = response?.text;
-      if (textOutput) {
-        const parsed = JSON.parse(textOutput.trim());
-        if (parsed && Array.isArray(parsed.questions) && parsed.questions.length === numQuestions) {
-          const hasHistory = history && Array.isArray(history) && history.filter((item: any) => item.type === 'TRAIN').length > 0;
-          const types = isJunior 
-            ? ["Resume", "Industry", "Technical_Trap", "Behavioral", "Assimilation_Trap", "Pressure"]
-            : ["Resume", "Architecture", "Industry_Shock", "Behavioral", "Weakness_Trap", "Leadership", "Delivery_Pressure", "Stakeholder_Trap"];
-          
-          const normalizedQuestions = parsed.questions.map((q: any, i: number) => {
-            const qType = types[i] || "General";
-            const isTrapType = ["Technical_Trap", "Assimilation_Trap", "Weakness_Trap", "Stakeholder_Trap"].includes(qType);
-            const hasChallenge = adaptation?.smartChallenge && adaptation.smartChallenge.phaseIndex === i;
-            return {
-              label: q.label || `PHASE ${i + 1}`,
-              type: qType,
-              question: q.question,
-              difficulty: adaptation?.difficulty || (isJunior ? "Junior" : "Senior"),
-              isTrickQuestion: isTrapType,
-              contextAware: isTrapType ? !!hasHistory : true,
-              challenge: hasChallenge ? adaptation.smartChallenge : undefined
-            };
-          });
-          return res.json({ questions: normalizedQuestions });
-        }
-      }
-    }
-  } catch (err) {
-    console.error("[SHANA Server] Failed to generate custom assessment questions via Gemini:", err);
   }
 
   // Fallback to high-quality localized questions if API fails or is unavailable
@@ -2356,6 +1867,7 @@ In these trap questions, mention or refer indirectly to the difficulty they face
 app.get("/api/interview/speak", async (req, res) => {
   const rawText = req.query.text as string;
   const openAIKey = ConfigResolver.getOpenAIKey();
+  const selectedVoice = (req.query.voice as string) || "alloy";
 
   if (!openAIKey) {
     console.warn("[SHANA Server] OpenAI API Key is missing for TTS speak. Streaming fallback might be required.");
@@ -2369,8 +1881,12 @@ app.get("/api/interview/speak", async (req, res) => {
   // Pass through the Voice Naturalizer & Speech Director Layer
   const text = VoiceNaturalizerService.naturalize(rawText);
 
+  // Validate voice param to match OpenAI supported voices
+  const validVoices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
+  const voice = validVoices.includes(selectedVoice) ? selectedVoice : "alloy";
+
   try {
-    console.log(`[SHANA Server] Generating OpenAI TTS Audio for naturalized text: "${text.substring(0, 50)}..."`);
+    console.log(`[SHANA Server] Generating OpenAI TTS Audio (${voice}) for naturalized text: "${text.substring(0, 50)}..."`);
     const response = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
       headers: {
@@ -2380,7 +1896,7 @@ app.get("/api/interview/speak", async (req, res) => {
       body: JSON.stringify({
         model: "tts-1",
         input: text,
-        voice: "alloy",
+        voice: voice,
         response_format: "mp3"
       }),
     });
@@ -2411,13 +1927,26 @@ app.post("/api/analyze-audio", async (req, res) => {
 
   if (openAIKey && audio) {
     try {
-      console.log(`[SHANA Server] Transcribing audio with OpenAI Whisper (${filename || "recording.webm"})...`);
+      // Parse the true mime type from the data URL prefix if available
+      const match = audio.match(/^data:(audio\/\w+);base64,/);
+      const mimeType = match ? match[1] : "audio/webm";
+      
+      // Extract correct extension based on mimeType
+      let ext = "webm";
+      if (mimeType.includes("mp3")) ext = "mp3";
+      else if (mimeType.includes("mp4") || mimeType.includes("m4a")) ext = "m4a";
+      else if (mimeType.includes("wav")) ext = "wav";
+      else if (mimeType.includes("ogg")) ext = "ogg";
+
+      const finalFilename = filename || `live_recording.${ext}`;
+      console.log(`[SHANA Server] Transcribing audio with OpenAI Whisper (MIME: ${mimeType}, File: ${finalFilename})...`);
+
       const base64Data = audio.replace(/^data:audio\/\w+;base64,/, "");
       const buffer = Buffer.from(base64Data, "base64");
-      const blob = new Blob([buffer], { type: "audio/webm" });
+      const blob = new Blob([buffer], { type: mimeType });
 
       const formData = new FormData();
-      formData.append("file", blob, filename || "audio.webm");
+      formData.append("file", blob, finalFilename);
       formData.append("model", "whisper-1");
       if (isFr) {
         formData.append("language", "fr");
@@ -2597,34 +2126,89 @@ Please return a well-formed JSON object matching this schema:
 });
 
 // Helper functions for actual email dispatch generation
-function getEmailSubjectForType(type: 'signup' | 'login' | 'reset-password' | 'test', firstName: string, email: string): string {
+function getEmailSubjectForType(type: string, firstName: string, email: string, extraData?: any): string {
+  const isFr = extraData?.language === 'French' || extraData?.lang === 'FR';
   switch (type) {
     case 'signup':
-      return `Welcome to SHANA, ${firstName}! 🚀 Your Interview Readiness Journey Begins Now`;
+      return isFr 
+        ? `Bienvenue sur SHANA, ${firstName} ! 🚀 Votre parcours de préparation commence`
+        : `Welcome to SHANA, ${firstName}! 🚀 Your Interview Readiness Journey Begins Now`;
     case 'login':
-      return `SHANA Security: New login verified for ${email}`;
+      return isFr 
+        ? `Sécurité SHANA : Nouvelle connexion vérifiée pour ${email}`
+        : `SHANA Security: New login verified for ${email}`;
     case 'reset-password':
-      return `🔑 Shana Cryptographic Key Reset Link: Account Password Restructure`;
+      return isFr 
+        ? `🔑 Réinitialisation de mot de passe SHANA : Restructuration de vos accès`
+        : `🔑 Shana Cryptographic Key Reset Link: Account Password Restructure`;
+    case 'cv-analyzed':
+      return isFr 
+        ? `🎯 SHANA Intelligence : Votre CV a été analysé pour le poste de ${extraData?.targetRole || 'Candidat'}`
+        : `🎯 SHANA Intelligence: CV Profile Matched & Scored for ${extraData?.targetRole || 'Candidate'}`;
+    case 'training-completed':
+      return isFr 
+        ? `📈 Rapport d'entraînement : Score de ${extraData?.score || 80}% obtenu !`
+        : `📈 Practice Session Feedback: You scored ${extraData?.score || 80}% in training!`;
+    case 'assessment-completed':
+      return isFr 
+        ? `🏆 Rapport d'Évaluation Officiel : Score certifié de ${extraData?.score || 80}%`
+        : `🏆 Official Assessment Report: ${extraData?.score || 80}% Score Certified`;
+    case 'payment-success':
+      return isFr 
+        ? `💳 Confirmation de paiement : Votre licence SHANA Premium est activée !`
+        : `💳 Invoice Secured: SHANA Premium License Activated!`;
+    case 'scheduled-session':
+      return isFr 
+        ? `📅 Confirmé : Votre session d'entraînement SHANA est planifiée`
+        : `📅 Confirmed: Your SHANA Mock Session has been scheduled`;
     default:
       return 'SHANA Notification Core Alert';
   }
 }
 
-function getEmailTextForType(type: 'signup' | 'login' | 'reset-password' | 'test', firstName: string, email: string): string {
+function getEmailTextForType(type: string, firstName: string, email: string, extraData?: any): string {
+  const isFr = extraData?.language === 'French' || extraData?.lang === 'FR';
   switch (type) {
     case 'signup':
-      return `Welcome, ${firstName}! Your account associated with ${email} is active. Perform onboarding profile synchronization to initiate.`;
+      return isFr
+        ? `Bienvenue, ${firstName} ! Votre compte associé à ${email} est actif. Connectez-vous pour commencer.`
+        : `Welcome, ${firstName}! Your account associated with ${email} is active. Perform onboarding profile synchronization to initiate.`;
     case 'login':
-      return `Security alert for ${email}. Access was authorized from Chrome 124.0. If you did not trigger this session, reset your keys.`;
+      return isFr
+        ? `Alerte de sécurité pour ${email}. Une session a été ouverte. Si ce n'est pas vous, réinitialisez vos accès.`
+        : `Security alert for ${email}. Access was authorized from Chrome 124.0. If you did not trigger this session, reset your keys.`;
     case 'reset-password':
-      return `Password reset issued for ${email}. Apply code SHANA-992-SEC to confirm credentials restructuring. link active for 15m.`;
+      return isFr
+        ? `Demande de réinitialisation pour ${email}. Utilisez le code SHANA-992-SEC sous 15 minutes.`
+        : `Password reset issued for ${email}. Apply code SHANA-992-SEC to confirm credentials restructuring. link active for 15m.`;
+    case 'cv-analyzed':
+      return isFr
+        ? `Analyse de CV terminée pour le rôle de ${extraData?.targetRole || 'Candidat'} dans le secteur ${extraData?.industry || 'Général'}.`
+        : `CV Analysis complete for ${extraData?.targetRole || 'Candidate'} in the ${extraData?.industry || 'General'} sector.`;
+    case 'training-completed':
+      return isFr
+        ? `Entraînement terminé ! Score global : ${extraData?.score || 80}%. Continuez à vous entraîner.`
+        : `Training session complete! Overall Score: ${extraData?.score || 80}%. Keep practicing to hone your skills.`;
+    case 'assessment-completed':
+      return isFr
+        ? `Votre rapport d'évaluation officiel est disponible. Score certifié : ${extraData?.score || 80}%.`
+        : `Your certified assessment report is ready. Certified Score: ${extraData?.score || 80}%.`;
+    case 'payment-success':
+      return isFr
+        ? `Merci pour votre achat ! Votre accès Premium a été déverrouillé.`
+        : `Thank you for your purchase! Your Premium license has been successfully unlocked.`;
+    case 'scheduled-session':
+      return isFr
+        ? `Votre session est confirmée pour le ${extraData?.date || 'prochainement'} à ${extraData?.time || 'l\'heure convenue'}.`
+        : `Your session is confirmed for ${extraData?.date || 'soon'} at ${extraData?.time || 'scheduled time'}.`;
     default:
       return 'Operational metrics notification dispatched.';
   }
 }
 
-function getEmailHtmlForType(type: 'signup' | 'login' | 'reset-password' | 'test', firstName: string, email: string): string {
+function getEmailHtmlForType(type: string, firstName: string, email: string, extraData?: any): string {
   const darkStone = '#1C1917';
+  const isFr = extraData?.language === 'French' || extraData?.lang === 'FR';
 
   if (type === 'signup') {
     return `
@@ -2638,33 +2222,37 @@ function getEmailHtmlForType(type: 'signup' | 'login' | 'reset-password' | 'test
 
         <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5; box-shadow: 0 4px 12px rgba(0,0,0,0.01);">
           <h2 style="font-size: 18px; font-weight: 850; color: #111111; margin-top: 0; margin-bottom: 12px; border-bottom: 1px solid #F3F1ED; padding-bottom: 12px;">
-            Bonjour ${firstName}, welcome to Shana Console!
+            ${isFr ? `Bonjour ${firstName}, bienvenue sur la console Shana !` : `Bonjour ${firstName}, welcome to Shana Console!`}
           </h2>
           <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-bottom: 18px;">
-            Your professional secure profile associated with <strong>${email}</strong> has been successfully instantiated. Our career capability assessment simulation runs on actual professional parameters.
+            ${isFr 
+              ? `Votre profil professionnel sécurisé associé à <strong>${email}</strong> a été créé avec succès. Notre simulateur d'entretien repose sur des algorithmes d'analyse vocale et comportementale de pointe.`
+              : `Your professional secure profile associated with <strong>${email}</strong> has been successfully instantiated. Our career capability assessment simulation runs on actual professional parameters.`}
           </p>
 
           <div style="background-color: #FECE4F; border-radius: 12px; padding: 16px; margin: 20px 0; border: 1px solid #E0B438;">
             <p style="margin: 0; font-weight: 900; font-size: 13px; color: #1C1917; letter-spacing: -0.2px;">
-              ⚡ IMMEDIATE STEP MANDATED:
+              ⚡ ${isFr ? 'ACTION IMMÉDIATE RECOMMANDÉE :' : 'IMMEDIATE STEP MANDATED:'}
             </p>
             <p style="margin: 6px 0 0 0; font-size: 12px; color: #2B281B; line-height: 1.4;">
-              Access your Shana console dashboard, personalize your target industry metrics, and complete the CV master profile evaluation.
+              ${isFr
+                ? 'Accédez à votre tableau de bord, personnalisez votre poste cible, puis importez votre CV afin d\'analyser votre profil.'
+                : 'Access your Shana console dashboard, personalize your target industry metrics, and complete the CV master profile evaluation.'}
             </p>
           </div>
 
           <div style="background: linear-gradient(135deg, #FFF9EB 0%, #FFF5D6 100%); padding: 16px; border-radius: 12px; border: 1px solid #FFE8A3; margin-bottom: 24px;">
-            <h4 style="margin: 0 0 8px 0; font-size: 12px; font-weight: 800; color: #6D4C0E; text-transform: uppercase; font-family: monospace;">Your Active Milestones:</h4>
+            <h4 style="margin: 0 0 8px 0; font-size: 12px; font-weight: 800; color: #6D4C0E; text-transform: uppercase; font-family: monospace;">${isFr ? 'Vos Jalons Actifs :' : 'Your Active Milestones:'}</h4>
             <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #604515; line-height: 1.6;">
-              <li>Perform career profile alignment</li>
-              <li>Upload master resume / resume points mapping</li>
-              <li>Simulate situational voice and conversational training</li>
+              <li>${isFr ? 'Alignement du profil de carrière' : 'Perform career profile alignment'}</li>
+              <li>${isFr ? 'Importation de votre CV & cartographie des compétences' : 'Upload master resume / resume points mapping'}</li>
+              <li>${isFr ? 'Entraînement vocal et simulation conversationnelle contextuelle' : 'Simulate situational voice and conversational training'}</li>
             </ul>
           </div>
 
           <div style="text-align: center; margin: 28px 0 10px 0;">
             <a href="#" style="background-color: ${darkStone}; color: #FAF7F2; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 12px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
-              Launch Active Onboarding Screen &rarr;
+              ${isFr ? 'Lancer le Tableau de Bord &' : 'Launch Active Onboarding Screen &rarr;'}
             </a>
           </div>
         </div>
@@ -2682,16 +2270,18 @@ function getEmailHtmlForType(type: 'signup' | 'login' | 'reset-password' | 'test
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
         <!-- Security Header -->
         <div style="background-color: #111111; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-          <h1 style="color: #EF4444; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">SECURITY ALERT</h1>
-          <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">NEW AUTHENTICATION EVENT DETECTED</p>
+          <h1 style="color: #EF4444; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">${isFr ? 'ALERTE DE SÉCURITÉ' : 'SECURITY ALERT'}</h1>
+          <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">${isFr ? 'NOUVEL ÉVÉNEMENT DE CONNEXION DÉTECTÉ' : 'NEW AUTHENTICATION EVENT DETECTED'}</p>
         </div>
 
         <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
           <h2 style="font-size: 15px; font-weight: 800; color: #111111; margin-top: 0; margin-bottom: 12px;">
-            Secure Login Verified
+            ${isFr ? 'Connexion Sécurisée Validée' : 'Secure Login Verified'}
           </h2>
           <p style="font-size: 12.5px; line-height: 1.5; color: #444444; margin-bottom: 20px;">
-            An authorized user session was successfully instantiated for the account <strong>${email}</strong>.
+            ${isFr 
+              ? `Une session utilisateur a été initiée pour le compte <strong>${email}</strong>.`
+              : `An authorized user session was successfully instantiated for the account <strong>${email}</strong>.`}
           </p>
 
           <!-- Device specifications -->
@@ -2699,19 +2289,19 @@ function getEmailHtmlForType(type: 'signup' | 'login' | 'reset-password' | 'test
             <p style="margin: 0; font-weight: bold; color: #1C1917; font-size: 11.5px; font-family: sans-serif; margin-bottom: 6px;">TELEMETRY PARAMETERS:</p>
             <div style="display: flex; justify-content: space-between;"><strong style="color:#111">Device:</strong> <span>Chrome 125.4 (MacBook Pro)</span></div>
             <div style="display: flex; justify-content: space-between;"><strong style="color:#111">IP Address:</strong> <span>82.112.45.221 (Secure TLS Tunnel)</span></div>
-            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">Location:</strong> <span>Paris, Île-de-France, France (EST)</span></div>
+            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">Location:</strong> <span>Paris, Île-de-France, France</span></div>
             <div style="display: flex; justify-content: space-between;"><strong style="color:#111">Access Date:</strong> <span>${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</span></div>
           </div>
 
           <div style="border-left: 3px solid #FECE4F; background-color: #FFFDF5; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
             <p style="margin: 0; font-size: 11.5px; color: #7A5310; font-weight: 600; line-height: 1.4;">
-              <strong>Not recognize this session?</strong> If you did not log in from this location, click below to lock down your master tokens instantly and format a new password reset.
+              <strong>${isFr ? 'Ce n\'est pas vous ?' : 'Not recognize this session?'}</strong> ${isFr ? 'Si vous n\'avez pas initié cette connexion, réinitialisez immédiatement votre mot de passe pour sécuriser votre compte.' : 'If you did not log in from this location, click below to lock down your master tokens instantly and format a new password reset.'}
             </p>
           </div>
 
           <div style="text-align: center; margin: 24px 0 10px 0;">
             <a href="#" style="background-color: #EF4444; color: #FFFFFF; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase; display: inline-block;">
-              De-Authorize & Terminate Token Session &rarr;
+              ${isFr ? 'Déconnecter & Révoquer la Session' : 'De-Authorize & Terminate Token Session'}
             </a>
           </div>
         </div>
@@ -2729,33 +2319,380 @@ function getEmailHtmlForType(type: 'signup' | 'login' | 'reset-password' | 'test
         <!-- Reset Header -->
         <div style="background-color: ${darkStone}; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
           <div style="display: inline-block; width: 36px; height: 36px; background-color: #FECE4F; border-radius: 50%; text-align: center; line-height: 36px; font-weight: bold; font-size: 16px; margin-bottom: 10px; color: #1C1917;">🔑</div>
-          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">PASSWORD RESTRUCTURE</h1>
+          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">${isFr ? 'MOT DE PASSE' : 'PASSWORD RESTRUCTURE'}</h1>
           <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">AUTHORIZED RECOVERY TOKEN DISPATCH</p>
         </div>
 
         <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
           <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-top: 0; margin-bottom: 18px;">
-            Security alert. A temporary resynchronization link has been configured for the credentials associated with <strong>${email}</strong>.
+            ${isFr 
+              ? `Alerte de sécurité. Un jeton de réinitialisation temporaire a été configuré pour le compte lié à <strong>${email}</strong>.`
+              : `Security alert. A temporary resynchronization link has been configured for the credentials associated with <strong>${email}</strong>.`}
           </p>
 
           <div style="background: #FAF7F2; border-radius: 10px; padding: 18px; margin: 20px 0; border: 1px solid #EAE6DF; border-left: 4px solid #1C1917;">
-            <p style="margin: 0 0 6px 0; font-size: 10px; uppercase font-weight: bold; color: #78716C; font-family: monospace;">Cryptographic Reset Code</p>
+            <p style="margin: 0 0 6px 0; font-size: 10px; text-transform: uppercase; font-weight: bold; color: #78716C; font-family: monospace;">${isFr ? 'Code de Sécurité' : 'Cryptographic Reset Code'}</p>
             <p style="margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 4px; color: #1C1917; font-family: monospace;">SHANA-992-SEC</p>
           </div>
 
           <p style="font-size: 12px; line-height: 1.5; color: #666666; margin-bottom: 24px;">
-            This single-use security token remains valid for exactly <strong>15 minutes</strong>. If you did not ask for this credential resynchronization, you can safely ignore this document; your security integrity is uncompromised.
+            ${isFr
+              ? `Ce jeton est à usage unique et reste valide pendant exactement <strong>15 minutes</strong>. Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail en toute sécurité.`
+              : `This single-use security token remains valid for exactly <strong>15 minutes</strong>. If you did not ask for this credential resynchronization, you can safely ignore this document; your security integrity is uncompromised.`}
           </p>
 
           <div style="text-align: center; margin: 24px 0 10px 0;">
             <a href="#" style="background-color: #FECE4F; color: #1C1917; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 11px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block; border: 1px solid #E0B438;">
-              Perform Secure Password Reset
+              ${isFr ? 'Réinitialiser le Mot de passe' : 'Perform Secure Password Reset'}
             </a>
           </div>
         </div>
 
         <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
           <p style="margin: 0;">IP REGISTERED ON REQUEST: 195.154.122.4 (AUTHORIZED REQUEST)</p>
+        </div>
+      </div>
+    `;
+  }
+
+  if (type === 'cv-analyzed') {
+    const targetRole = extraData?.targetRole || (isFr ? 'Candidat' : 'Candidate');
+    const industry = extraData?.industry || (isFr ? 'Général' : 'General');
+    const strengths = extraData?.strengths || (isFr 
+      ? ['Communication structurelle', 'Sens technique aiguisé', 'Adaptabilité stratégique'] 
+      : ['Structural communication', 'Sharp technical delivery', 'Strategic adaptability']);
+    
+    return `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
+        <!-- CV Header -->
+        <div style="background-color: ${darkStone}; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
+          <div style="display: inline-block; width: 40px; height: 40px; background-color: #FECE4F; color: ${darkStone}; border-radius: 8px; font-weight: 900; font-size: 20px; line-height: 40px; text-align: center; margin-bottom: 8px;">🎯</div>
+          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">SHANA INTELLIGENCE</h1>
+          <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">${isFr ? 'EVALUATION ET CARTOGRAPHIE DE CV TERMINEE' : 'CV PROFILE COMPATIBILITY MAP COMPLETE'}</p>
+        </div>
+
+        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
+          <h2 style="font-size: 16px; font-weight: 850; color: #111111; margin-top: 0; margin-bottom: 12px;">
+            ${isFr ? `Félicitations ${firstName} ! Votre CV est analysé.` : `Congratulations ${firstName}! Your CV mapping is complete.`}
+          </h2>
+          <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-bottom: 20px;">
+            ${isFr
+              ? `Notre moteur d'IA Shana a scanné vos compétences par rapport au marché. Votre profil a été configuré avec succès pour le poste ciblé : <strong>${targetRole}</strong> dans le secteur <strong>${industry}</strong>.`
+              : `Our Shana AI Engine has benchmarked your professional achievements against target market vectors. Your master profile is successfully aligned for the position: <strong>${targetRole}</strong> within the <strong>${industry}</strong> sector.`}
+          </p>
+
+          <!-- Core Score Box -->
+          <div style="background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%); border: 1px solid #A7F3D0; padding: 18px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
+            <p style="margin: 0 0 4px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: #065F46; font-family: monospace; letter-spacing: 1px;">
+              ${isFr ? 'COHÉRENCE DU PROFIL GLOBALE' : 'GLOBAL PROFILE COHERENCE'}
+            </p>
+            <p style="margin: 0; font-size: 32px; font-weight: 900; color: #047857; font-family: sans-serif;">
+              ${extraData?.score || 88}%
+            </p>
+          </div>
+
+          <div style="margin-bottom: 24px;">
+            <h4 style="margin: 0 0 10px 0; font-size: 12px; font-weight: 800; color: #1C1917; text-transform: uppercase; letter-spacing: 0.5px;">
+              🛡️ ${isFr ? 'Forces Clés Détectées :' : 'Key Identified Strengths:'}
+            </h4>
+            <div style="background-color: #F8F6F2; padding: 14px; border-radius: 10px; border: 1px solid #EAE6DF;">
+              <ul style="margin: 0; padding-left: 18px; font-size: 12.5px; color: #444444; line-height: 1.7;">
+                ${strengths.map((s: string) => `<li>${s}</li>`).join('')}
+              </ul>
+            </div>
+          </div>
+
+          <div style="text-align: center; margin: 24px 0 10px 0;">
+            <a href="#" style="background-color: ${darkStone}; color: #FAF7F2; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 12px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block;">
+              ${isFr ? 'Lancer un Entraînement Vocal &' : 'Enter Practice Lounge &rarr;'}
+            </a>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
+          <p style="margin: 0;">SHANA INTEL SYSTEMS // CLOUD ANALYSIS REPORT V1.0</p>
+        </div>
+      </div>
+    `;
+  }
+
+  if (type === 'training-completed') {
+    const score = extraData?.score || 82;
+    const tips = extraData?.tips || (isFr 
+      ? "Utilisez des mots-clés STAR pour structurer votre narration et gardez un rythme de parole régulier."
+      : "Structure your narrative using clear STAR coordinates and keep a consistent articulation pacing.");
+
+    return `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
+        <!-- Practice Header -->
+        <div style="background-color: ${darkStone}; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
+          <div style="display: inline-block; width: 40px; height: 40px; background-color: #3B82F6; color: #FAF7F2; border-radius: 8px; font-weight: 900; font-size: 20px; line-height: 40px; text-align: center; margin-bottom: 8px;">📈</div>
+          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">SHANA PRACTICE</h1>
+          <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">${isFr ? 'FEED-BACK DE SESSION D\'ENTRAÎNEMENT' : 'PRACTICE FEEDBACK DISPATCHED'}</p>
+        </div>
+
+        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
+          <h2 style="font-size: 16px; font-weight: 850; color: #111111; margin-top: 0; margin-bottom: 12px;">
+            ${isFr ? `Entraînement Terminé, ${firstName} !` : `Practice Session Complete, ${firstName}!`}
+          </h2>
+          <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-bottom: 20px;">
+            ${isFr
+              ? `Félicitations pour avoir complété cet exercice ! Nos modèles de traitement ont évalué votre réponse vocale et conversationnelle.`
+              : `Excellent work honing your verbal delivery. Our analysis core has fully processed your audio and contextual feedback metrics.`}
+          </p>
+
+          <!-- Metric Card -->
+          <div style="background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1px solid #BFDBFE; padding: 18px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
+            <p style="margin: 0 0 4px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: #1E40AF; font-family: monospace; letter-spacing: 1px;">
+              ${isFr ? 'SCORE D\'ÉMISSION VOCALE' : 'VERBAL PRACTICE SCORE'}
+            </p>
+            <p style="margin: 0; font-size: 32px; font-weight: 900; color: #1D4ED8; font-family: sans-serif;">
+              ${score}%
+            </p>
+          </div>
+
+          <div style="margin-bottom: 24px;">
+            <h4 style="margin: 0 0 8px 0; font-size: 12px; font-weight: 800; color: #1E3A8A; font-family: monospace; text-transform: uppercase;">
+              💡 ${isFr ? 'CONSEIL ACTIONNABLE IMMÉDIAT :' : 'IMMEDIATE TACTICAL ADVICE:'}
+            </h4>
+            <p style="font-size: 12.5px; line-height: 1.5; color: #374151; background-color: #F0FDF4; border: 1px solid #BBF7D0; padding: 12px; border-radius: 8px; margin: 0;">
+              ${tips}
+            </p>
+          </div>
+
+          <div style="text-align: center; margin: 24px 0 10px 0;">
+            <a href="#" style="background-color: ${darkStone}; color: #FAF7F2; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 12px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block;">
+              ${isFr ? 'Accéder à vos Statistiques &' : 'Access Performance Metrics &rarr;'}
+            </a>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
+          <p style="margin: 0;">PRACTICE SUITE VERBAL-LOG // ID: ${Math.random().toString(36).substring(2, 6).toUpperCase()}</p>
+        </div>
+      </div>
+    `;
+  }
+
+  if (type === 'assessment-completed') {
+    const score = extraData?.score || 85;
+    const adaptability = extraData?.adaptability || 80;
+    const communication = extraData?.communication || 85;
+    const industry = extraData?.industry || 82;
+    const behavioral = extraData?.behavioral || 90;
+
+    return `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
+        <!-- Assessment Header -->
+        <div style="background-color: #111111; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
+          <div style="display: inline-block; width: 44px; height: 44px; background-color: #FECE4F; border-radius: 50%; text-align: center; line-height: 44px; font-size: 20px; margin-bottom: 8px; color: #1C1917;">🏆</div>
+          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">SHANA AUDIT</h1>
+          <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">${isFr ? 'RAPPORT DE CERTIFICATION OFFICIEL' : 'OFFICIAL ASSESSMENT EVALUATION MATRIX'}</p>
+        </div>
+
+        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
+          <h2 style="font-size: 16px; font-weight: 850; color: #111111; margin-top: 0; margin-bottom: 12px; border-bottom: 1px solid #F3F1ED; padding-bottom: 12px;">
+            ${isFr ? `Rapport d'Évaluation Certifié : ${firstName}` : `Certified Performance Report: ${firstName}`}
+          </h2>
+          <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-bottom: 18px;">
+            ${isFr
+              ? 'Votre entretien de mise en situation formel de type protocole Shana a été validé. Vos scores d\'évaluation multi-axes ont été compilés avec succès :'
+              : 'Your formal mock assessment under official Shana testing protocols has been processed. Multi-axis rating outcomes are now verified:'}
+          </p>
+
+          <!-- Core Score Box -->
+          <div style="background: linear-gradient(135deg, #FAF7F2 0%, #FFF5D6 100%); border: 1px solid #FECE4F; padding: 18px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
+            <p style="margin: 0 0 4px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: #854D0E; font-family: monospace; letter-spacing: 1px;">
+              ${isFr ? 'SCORE GLOBAL CRITIQUE' : 'GLOBAL SCORE AVERAGE'}
+            </p>
+            <p style="margin: 0; font-size: 34px; font-weight: 900; color: #1C1917; font-family: sans-serif;">
+              ${score}%
+            </p>
+          </div>
+
+          <!-- Multi-axis Progress Grid -->
+          <div style="margin-bottom: 24px; font-size: 12px; line-height: 1.5;">
+            <h4 style="margin: 0 0 12px 0; font-size: 11px; font-weight: 800; color: #78716C; text-transform: uppercase; font-family: monospace; letter-spacing: 0.5px;">
+              ${isFr ? 'Analyse Détaillée par Compétence :' : 'Competency Vector Analysis:'}
+            </h4>
+            
+            <div style="margin-bottom: 12px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: bold;">
+                <span>${isFr ? 'Adaptabilité et Réflexion' : 'Adaptability & On-Feet Thinking'}</span>
+                <span>${adaptability}%</span>
+              </div>
+              <div style="background-color: #F3F1ED; height: 8px; border-radius: 4px; overflow: hidden;">
+                <div style="background-color: #FECE4F; width: ${adaptability}%; height: 100%; border-radius: 4px;"></div>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: bold;">
+                <span>${isFr ? 'Clarté de Communication' : 'Communication & Clarity'}</span>
+                <span>${communication}%</span>
+              </div>
+              <div style="background-color: #F3F1ED; height: 8px; border-radius: 4px; overflow: hidden;">
+                <div style="background-color: #1C1917; width: ${communication}%; height: 100%; border-radius: 4px;"></div>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: bold;">
+                <span>${isFr ? 'Expertise du Secteur' : 'Sector-Specific Expertise'}</span>
+                <span>${industry}%</span>
+              </div>
+              <div style="background-color: #F3F1ED; height: 8px; border-radius: 4px; overflow: hidden;">
+                <div style="background-color: #047857; width: ${industry}%; height: 100%; border-radius: 4px;"></div>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: bold;">
+                <span>${isFr ? 'Alignement Comportemental' : 'Behavioral STAR Structure'}</span>
+                <span>${behavioral}%</span>
+              </div>
+              <div style="background-color: #F3F1ED; height: 8px; border-radius: 4px; overflow: hidden;">
+                <div style="background-color: #3B82F6; width: ${behavioral}%; height: 100%; border-radius: 4px;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="text-align: center; margin: 28px 0 10px 0;">
+            <a href="#" style="background-color: #111111; color: #FAF7F2; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 11px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block;">
+              ${isFr ? 'Consulter le Rapport d\'Évaluation &' : 'Review Annotated Feedback &rarr;'}
+            </a>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
+          <p style="margin: 0;">SHANA CERTIFIED PORTAL // VERIFIED RESULTS DISPATCH</p>
+        </div>
+      </div>
+    `;
+  }
+
+  if (type === 'payment-success') {
+    const amount = extraData?.amount || '29.00';
+    const txId = extraData?.transactionId || 'TX_' + Math.random().toString(36).substring(2, 10).toUpperCase();
+
+    return `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
+        <!-- Billing Header -->
+        <div style="background-color: #065F46; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
+          <div style="display: inline-block; width: 40px; height: 40px; background-color: #FAF7F2; color: #065F46; border-radius: 50%; text-align: center; line-height: 40px; font-size: 18px; margin-bottom: 8px; font-weight: bold;">💳</div>
+          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">SHANA BILLING</h1>
+          <p style="color: #A7F3D0; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">${isFr ? 'CONFIRMATION D\'ACHAT ET FACTURATION' : 'PURCHASE CONFIRMED & ACCESS DEPLOYED'}</p>
+        </div>
+
+        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
+          <h2 style="font-size: 16px; font-weight: 850; color: #111111; margin-top: 0; margin-bottom: 12px;">
+            ${isFr ? 'Votre Licence Shana Premium est active !' : 'Your Shana Premium Status is Active!'}
+          </h2>
+          <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-bottom: 20px;">
+            ${isFr
+              ? `Merci pour votre confiance ${firstName} ! Votre paiement de <strong>${amount} €</strong> a été traité avec succès.`
+              : `Thank you for choosing Shana, ${firstName}! We are pleased to confirm your premium charge of <strong>$${amount}</strong> was successfully verified.`}
+          </p>
+
+          <!-- Invoice summary panel -->
+          <div style="background-color: #F8F6F2; border-radius: 10px; padding: 14px; border: 1px solid #EAE6DF; margin-bottom: 24px; font-family: monospace; font-size: 11px; line-height: 1.6; color: #555555;">
+            <p style="margin: 0; font-weight: bold; color: #1C1917; font-size: 11.5px; font-family: sans-serif; margin-bottom: 6px;">${isFr ? 'DÉTAILS DE LA FACTURATION :' : 'SECURE INVOICE MATRIX:'}</p>
+            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">${isFr ? 'ID Transaction :' : 'Transaction ID:'}</strong> <span>${txId}</span></div>
+            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">${isFr ? 'Licence :' : 'Licence level:'}</strong> <span>SHANA Premium (All-Access Pass)</span></div>
+            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">${isFr ? 'Montant payé :' : 'Total Secured:'}</strong> <span>${amount} ${isFr ? 'EUR' : 'USD'}</span></div>
+            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">${isFr ? 'Statut du paiement :' : 'Stripe Status:'}</strong> <span style="color:#047857; font-weight: bold;">PAID</span></div>
+          </div>
+
+          <!-- Feature check list -->
+          <div style="background: #ECFDF5; border: 1px solid #A7F3D0; padding: 16px; border-radius: 12px; margin-bottom: 24px;">
+            <h4 style="margin: 0 0 8px 0; font-size: 11px; font-weight: 800; color: #065F46; text-transform: uppercase; font-family: monospace;">
+              ✨ ${isFr ? 'Fonctionnalités déverrouillées :' : 'Premium Privileges Unlocked:'}
+            </h4>
+            <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #047857; line-height: 1.6;">
+              <li>${isFr ? 'Évaluations formelles par IA en illimité' : 'Unlimited formal AI evaluations & simulations'}</li>
+              <li>${isFr ? 'Analyses vocales et physiologiques avancées' : 'Advanced vocal pacing & tone structural metrics'}</li>
+              <li>${isFr ? 'Simulateur d\'industries et pièges de recruteurs complets' : 'Comprehensive recruiter traps & specialized paths'}</li>
+              <li>${isFr ? 'Rapports de performance exportables en PDF' : 'Fully compiled PDF candidate report export'}</li>
+            </ul>
+          </div>
+
+          <div style="text-align: center; margin: 10px 0 5px 0;">
+            <a href="#" style="background-color: #047857; color: #FFFFFF; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 11px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block;">
+              ${isFr ? 'Accéder au Compte Premium' : 'Explore Premium Console &rarr;'}
+            </a>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
+          <p style="margin: 0;">SHANA MERCHANT CORE // SECURE STRIPE GATEWAY PORTAL</p>
+        </div>
+      </div>
+    `;
+  }
+
+  if (type === 'scheduled-session') {
+    const date = extraData?.date || 'July 15, 2026';
+    const time = extraData?.time || '10:00 AM';
+    const mentor = extraData?.mentor || 'Shana Expert Coach';
+    const meetUrl = extraData?.meetUrl || 'https://meet.google.com/sha-na-co';
+
+    return `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
+        <!-- Calendar Header -->
+        <div style="background-color: #1C1917; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
+          <div style="display: inline-block; width: 40px; height: 40px; background-color: #FECE4F; color: #1C1917; border-radius: 8px; font-weight: 900; font-size: 20px; line-height: 40px; text-align: center; margin-bottom: 8px;">📅</div>
+          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">SHANA PLANNER</h1>
+          <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">${isFr ? 'SESSION DE SIMULATION ET DE COACHING PLANIFIÉE' : 'MENTOR ENGAGEMENT RESERVATION CONFIRMED'}</p>
+        </div>
+
+        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
+          <h2 style="font-size: 16px; font-weight: 850; color: #111111; margin-top: 0; margin-bottom: 12px;">
+            ${isFr ? 'Votre Créneau d\'Entraînement est Réservé !' : 'Your Coaching Session is Confirmed!'}
+          </h2>
+          <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-bottom: 20px;">
+            ${isFr
+              ? `Bonjour ${firstName}, votre session en tête-à-tête a bien été ajoutée au planning de notre coach expert Shana.`
+              : `Hello ${firstName}, your personalized one-on-one session has been locked into our dynamic coach schedules.`}
+          </p>
+
+          <!-- Appointment Summary Card -->
+          <div style="background-color: #FFFDF5; border-radius: 12px; padding: 18px; border: 1px solid #FECE4F; margin-bottom: 24px;">
+            <p style="margin: 0 0 8px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: #7A5310; font-family: monospace;">
+              ${isFr ? 'RÉCAPITULATIF DU RENDEZ-VOUS :' : 'APPOINTMENT SPECTRA:'}
+            </p>
+            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
+              <strong style="color: #1C1917;">${isFr ? 'Date :' : 'Date:'}</strong>
+              <span style="color: #555555;">${date}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
+              <strong style="color: #1C1917;">${isFr ? 'Heure :' : 'Time:'}</strong>
+              <span style="color: #555555;">${time}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
+              <strong style="color: #1C1917;">${isFr ? 'Format :' : 'Expert Coach:'}</strong>
+              <span style="color: #555555;">${mentor}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 12px;">
+              <strong style="color: #1C1917;">${isFr ? 'Plateforme :' : 'Video Bridge:'}</strong>
+              <span style="color: #3B82F6; text-decoration: underline;">Google Meet (Secured)</span>
+            </div>
+          </div>
+
+          <div style="border-left: 3px solid #3B82F6; background-color: #EFF6FF; padding: 12px; border-radius: 4px; margin-bottom: 24px; font-size: 12px; color: #1E40AF;">
+            <p style="margin: 0; line-height: 1.4;">
+              <strong>${isFr ? 'Préparation requise :' : 'Pre-flight check:'}</strong> ${isFr ? 'Pour profiter au mieux de votre coaching, veuillez revoir votre CV analysé et brancher vos écouteurs pour l\'analyse audio en temps réel.' : 'To optimize your feedback, please have your analyzed CV details on-screen and use headphones to prevent audio loopbacks.'}
+            </p>
+          </div>
+
+          <div style="text-align: center; margin: 10px 0 5px 0;">
+            <a href="${meetUrl}" target="_blank" style="background-color: #1C1917; color: #FAF7F2; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 11px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block;">
+              ${isFr ? 'Rejoindre la visio (Google Meet) &' : 'Join Google Meet Session &rarr;'}
+            </a>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
+          <p style="margin: 0;">SHANA SCHEDULER PROTOCOL // API-SYNC OK</p>
         </div>
       </div>
     `;
@@ -2772,9 +2709,9 @@ app.post("/api/email/dispatch", async (req, res) => {
   }
 
   const name = extraData?.firstName || "Candidate";
-  const subject = getEmailSubjectForType(type, name, recipient);
-  const text = getEmailTextForType(type, name, recipient);
-  const html = getEmailHtmlForType(type, name, recipient);
+  const subject = getEmailSubjectForType(type, name, recipient, extraData);
+  const text = getEmailTextForType(type, name, recipient, extraData);
+  const html = getEmailHtmlForType(type, name, recipient, extraData);
 
   const smtpHost = process.env.SMTP_HOST;
   const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
@@ -2788,7 +2725,42 @@ app.post("/api/email/dispatch", async (req, res) => {
   let etherealUrl: string | null = null;
 
   try {
-    if (smtpHost && smtpUser && smtpPass) {
+    const resendApiKey = process.env.RESEND_API_KEY;
+
+    if (resendApiKey) {
+      console.log(`[SHANA Mailer] Routing outbound mail for ${recipient} via Resend REST API`);
+      providerUsed = "Resend API Service";
+      
+      let resendFrom = smtpFrom;
+      if (resendFrom === `SHANA Interview Systems <no-reply@shana-platform.com>`) {
+        resendFrom = "SHANA <onboarding@resend.dev>";
+      }
+
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${resendApiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          from: resendFrom,
+          to: recipient,
+          subject,
+          text,
+          html
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Resend API HTTP Error ${response.status}: ${errText}`);
+      }
+
+      const resendData = (await response.json()) as any;
+      transportInfo = {
+        messageId: resendData.id || `resend_${Date.now()}`
+      };
+    } else if (smtpHost && smtpUser && smtpPass) {
       console.log(`[SHANA Mailer] Routing outbound SMTP mail for ${recipient} via host ${smtpHost}`);
       // Instantiate true custom user-provided SMTP client
       const transporter = nodemailer.createTransport({
@@ -3581,6 +3553,112 @@ app.get("/api/commerce/stripe/success", async (req: any, res: any) => {
 
   if (!paymentSucceeded) {
     return res.status(400).send("The payment was not completed successfully.");
+  }
+
+  // Update candidate monetization in Firestore on successful Stripe checkout
+  try {
+    const { db } = require('./server/lib/firebase');
+    const { doc, getDoc, setDoc } = require('firebase/firestore');
+
+    const monetizationRef = doc(db, 'monetization', userId);
+    const mSnap = await getDoc(monetizationRef);
+    let monetization = mSnap.exists() ? mSnap.data() : {
+      userId,
+      freeAudio: 2,
+      packAudio: 0,
+      topUpAudio: 0,
+      freeMirror: 0,
+      packMirror: 0,
+      topUpMirror: 0,
+      ultraActive: false,
+      ultraExpiresAt: null,
+      ultraRenewalCancelled: false,
+      frozenCredits: null,
+      purchases: []
+    };
+
+    // Apply specific product benefits matching UpgradeEngine and StorageService
+    const date = new Date().toISOString();
+    const purchaseId = 'pur_stripe_' + Math.random().toString(36).substring(3, 11);
+    
+    let nameEN = '';
+    let nameFR = '';
+    let price = 0;
+
+    if (productId === 'pack_starter') {
+      nameEN = 'Starter Pack (3 Audio Sessions)';
+      nameFR = 'Pack Starter (3 Sessions Audio)';
+      price = 3.99;
+      monetization.packAudio = (monetization.packAudio || 0) + 3;
+    } else if (productId === 'pack_premium') {
+      nameEN = 'Premium Pack (5 Audio + 1 Mirror)';
+      nameFR = 'Pack Premium (5 Audio + 1 Miroir)';
+      price = 7.99;
+      monetization.packAudio = (monetization.packAudio || 0) + 5;
+      monetization.packMirror = (monetization.packMirror || 0) + 1;
+    } else if (productId === 'sub_ultra') {
+      nameEN = 'Ultra Unlimited (1 Month)';
+      nameFR = 'Abonnement Ultra (1 Mois)';
+      price = 39.99;
+      
+      // Freeze existing credits if not already Ultra
+      if (!monetization.ultraActive) {
+        monetization.frozenCredits = {
+          freeAudio: monetization.freeAudio || 0,
+          packAudio: monetization.packAudio || 0,
+          topUpAudio: monetization.topUpAudio || 0,
+          freeMirror: monetization.freeMirror || 0,
+          packMirror: monetization.packMirror || 0,
+          topUpMirror: monetization.topUpMirror || 0,
+        };
+        monetization.freeAudio = 0;
+        monetization.packAudio = 0;
+        monetization.topUpAudio = 0;
+        monetization.freeMirror = 0;
+        monetization.packMirror = 0;
+        monetization.topUpMirror = 0;
+      }
+      
+      monetization.ultraActive = true;
+      const endsAt = new Date();
+      endsAt.setDate(endsAt.getDate() + 30);
+      monetization.ultraExpiresAt = endsAt.toISOString();
+      monetization.ultraRenewalCancelled = false;
+    } else if (productId === 'topup_1_audio') {
+      nameEN = '+1 Audio Session';
+      nameFR = '+1 Session Audio';
+      price = 1.49;
+      monetization.topUpAudio = (monetization.topUpAudio || 0) + 1;
+    } else if (productId === 'topup_3_audio') {
+      nameEN = '+3 Audio Sessions';
+      nameFR = '+3 Sessions Audio';
+      price = 3.49;
+      monetization.topUpAudio = (monetization.topUpAudio || 0) + 3;
+    } else if (productId === 'topup_1_mirror') {
+      nameEN = '+1 Mirror Session';
+      nameFR = '+1 Session Miroir';
+      price = 2.99;
+      monetization.topUpMirror = (monetization.topUpMirror || 0) + 1;
+    }
+
+    if (!monetization.purchases) {
+      monetization.purchases = [];
+    }
+
+    monetization.purchases.unshift({
+      id: purchaseId,
+      productId,
+      nameEN,
+      nameFR,
+      price,
+      date
+    });
+
+    await setDoc(monetizationRef, monetization, { merge: true });
+    console.log(`[Stripe Checkout Success] Updated and synced candidate monetization in Firestore for user ${userId}`);
+
+  } catch (err) {
+    console.error("[Stripe Success Callback] Failed to update Firestore monetization:", err);
   }
 
   return res.send(`

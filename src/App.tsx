@@ -4,7 +4,6 @@ import LandingPage from './components/LandingPage';
 import OnboardingFlow from './components/OnboardingFlow';
 import AuthScreens from './components/AuthScreens';
 import InfoPages from './components/InfoPages';
-import EmailSimulator from './components/EmailSimulator';
 import { StorageService } from './lib/storage';
 import { ToastProvider } from './components/Toast';
 import CookieConsentBanner from './components/CookieConsentBanner';
@@ -614,9 +613,6 @@ export default function App() {
 
         {/* Global Cookie Consent System Banner */}
         <CookieConsentBanner lang={lang} />
-
-        {/* Real-time SMTP Action Email Simulation Sandbox */}
-        <EmailSimulator />
 
         {/* DEVICE DIAGNOSTIC MODAL */}
         <AnimatePresence>

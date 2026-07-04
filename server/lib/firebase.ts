@@ -14,7 +14,9 @@ try {
 const app = initializeApp(firebaseConfig);
 const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
-}, firebaseConfig.firestoreDatabaseId || '(default)');
+  experimentalAutoDetectLongPolling: false,
+  useFetchStreams: false,
+} as any, firebaseConfig.firestoreDatabaseId || '(default)');
 
 export { app, db };
 

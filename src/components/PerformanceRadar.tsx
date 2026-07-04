@@ -298,7 +298,7 @@ export default function PerformanceRadar({ history, lang }: PerformanceRadarProp
         </div>
       </div>
 
-      <div className="flex flex-col xl:flex-row gap-6 mt-4 flex-1 items-center xl:items-stretch w-full">
+      <div className="flex flex-col sm:flex-row lg:flex-col gap-6 mt-4 flex-1 items-center sm:items-stretch lg:items-center w-full">
         {/* SVG visualizer container - takes up the left side or top */}
         <div className="w-full flex-1 aspect-[420/320] max-w-[420px] mx-auto flex items-center justify-center relative select-none">
           <svg
@@ -309,7 +309,7 @@ export default function PerformanceRadar({ history, lang }: PerformanceRadarProp
         </div>
 
         {/* Competency detail card sidebar panel - takes up the right side or bottom */}
-        <div className="w-full xl:w-[240px] shrink-0 flex flex-col justify-between gap-4">
+        <div className="w-full sm:w-[240px] lg:w-full shrink-0 flex flex-col justify-between gap-4">
           <div className="bg-[#FAFAFA] border-2 border-stone-950 p-5 rounded-[24px] space-y-3.5 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
             {hoveredComp ? (
               <div className="space-y-3">

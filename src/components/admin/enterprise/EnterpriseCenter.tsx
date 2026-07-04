@@ -61,7 +61,7 @@ interface EnterpriseCenterProps {
   lang?: 'FR' | 'EN';
 }
 
-type EnterpriseTab = 'dashboard' | 'organizations' | 'teams' | 'members' | 'seats' | 'analytics' | 'settings';
+type EnterpriseTab = 'dashboard' | 'organizations' | 'teams' | 'members' | 'seats' | 'analytics' | 'settings' | 'ats' | 'frameworks';
 
 export default function EnterpriseCenter({ currentUser, lang = 'FR' }: EnterpriseCenterProps) {
   const isSuperAdmin = currentUser.role === 'super_admin';
@@ -111,6 +111,83 @@ export default function EnterpriseCenter({ currentUser, lang = 'FR' }: Enterpris
     setFeedback({ text, type });
     setTimeout(() => setFeedback(null), 4000);
   };
+
+  // ATS Integration State
+  const [atsConnections, setAtsConnections] = useState([
+    { id: 'greenhouse', name: 'Greenhouse', logo: '🟢', status: 'connected', apiKey: 'gh_live_••••••••9a2b', subdomain: 'loreal-luxe', lastSynced: '2026-07-04 03:30', jobCount: 14 },
+    { id: 'lever', name: 'Lever', logo: '🔵', status: 'disconnected', apiKey: '', subdomain: '', lastSynced: 'Never', jobCount: 0 },
+    { id: 'workday', name: 'Workday ERP', logo: '🟠', status: 'disconnected', apiKey: '', subdomain: '', lastSynced: 'Never', jobCount: 0 },
+    { id: 'ashby', name: 'Ashby', logo: '🟣', status: 'disconnected', apiKey: '', subdomain: '', lastSynced: 'Never', jobCount: 0 }
+  ]);
+  const [selectedAts, setSelectedAts] = useState('greenhouse');
+  const [isSyncingAts, setIsSyncingAts] = useState(false);
+  const [atsLogs, setAtsLogs] = useState([
+    { id: 'l1', time: '2026-07-04 03:30:22', type: 'success', msg: lang === 'FR' ? 'Synchronisation complète effectuée avec GREENHOUSE' : 'Bidirectional schema sync completed with GREENHOUSE' },
+    { id: 'l2', time: '2026-07-04 02:15:10', type: 'success', msg: lang === 'FR' ? 'Candidat "Arianne" exporté vers l\'étape Greenhouse: "Entretien Technique" (Score: 89/100)' : 'Candidate "Arianne" exported to Greenhouse stage: "Technical Screen" (Score: 89/100)' },
+    { id: 'l3', time: '2026-07-03 18:44:02', type: 'warning', msg: lang === 'FR' ? 'Synchro ATS: Offre expirée ignorée "Stagiaire Marketing"' : 'ATS Sync Notice: Skipped deprecated job post "Marketing Associate - Intern"' }
+  ]);
+  const [atsForm, setAtsForm] = useState({
+    apiKey: 'gh_live_••••••••9a2b',
+    subdomain: 'loreal-luxe',
+    webhookSecret: 'whsec_8fb4a1a9e223'
+  });
+
+  // Company-Specific Interview Frameworks State
+  const [frameworks, setFrameworks] = useState([
+    {
+      id: 'fw_luxury_retail',
+      name: lang === 'FR' ? "Référentiel Cognitif L'Oréal Luxe" : "L'Oréal Luxury Retail Cognitive Framework",
+      targetRole: lang === 'FR' ? "Responsable de Boutique & Conseiller Luxe" : "Store Manager & Luxury Consultant",
+      creator: "michele.h@loreal.com",
+      skills: [
+        { name: lang === 'FR' ? "Adhésion Culturelle & Ambassadeur de Marque" : "Cultural Fit & Brand Ambassadorship", weight: 30 },
+        { name: lang === 'FR' ? "Intelligence Émotionnelle (EQ)" : "Emotional Intelligence (EQ)", weight: 25 },
+        { name: lang === 'FR' ? "Résolution de Problèmes en Vente" : "Problem Solving under Retail Pressure", weight: 25 },
+        { name: lang === 'FR' ? "Éloquence et Vocabulaire Premium" : "Luxury Hospitality Lexicon Accuracy", weight: 20 }
+      ],
+      aiDirectives: lang === 'FR' 
+        ? "Évaluez l'utilisation par le candidat d'un vocabulaire haut de gamme. Posez des questions de mise en situation sur la gestion de clients exigeants." 
+        : "Assess the candidate's use of vocabulary related to high-end hospitality. Structure scenario questions about demanding retail customers.",
+      questions: [
+        lang === 'FR' 
+          ? "Comment réagissez-vous face à un client qui exprime une insatisfaction subtile quant à l'ambiance de la boutique ?" 
+          : "How do you handle a client who expresses subtle dissatisfaction with the ambient experience of our luxury boutique?",
+        lang === 'FR'
+          ? "Décrivez une expérience où vous avez transformé une interaction de vente simple en un moment mémorable de marque."
+          : "Describe a time you transformed a regular client interaction into an exceptional brand experience."
+      ],
+      isActive: true
+    },
+    {
+      id: 'fw_tech_lead',
+      name: lang === 'FR' ? "Rubrique Architecture Cloud & IA" : "Enterprise Cognitive Engineering Rubric",
+      targetRole: lang === 'FR' ? "Architecte Solutions Cloud Senior" : "Senior Cloud Architect",
+      creator: "tech-talent@loreal.com",
+      skills: [
+        { name: "Distributed Systems Troubleshooting", weight: 40 },
+        { name: "Strategic Architectural Scaling", weight: 30 },
+        { name: "Technical Team Mentorship Capability", weight: 30 }
+      ],
+      aiDirectives: "Enforce high-density architectural questions. Present failure scenarios regarding state-consistency across active-active geographic zones.",
+      questions: [
+        "Explain how you would handle write-heavy synchronization conflicts across multiple cloud regions under network partition.",
+        "How do you manage mentoring mid-level engineers who resist adopting strict architectural standards?"
+      ],
+      isActive: false
+    }
+  ]);
+  const [selectedFrameworkId, setSelectedFrameworkId] = useState('fw_luxury_retail');
+  const [showFrameworkForm, setShowFrameworkForm] = useState(false);
+  const [frameworkForm, setFrameworkForm] = useState({
+    name: '',
+    targetRole: '',
+    aiDirectives: '',
+    skill1: 'Cultural Alignment', weight1: 30,
+    skill2: 'Technical Aptitude', weight2: 30,
+    skill3: 'Communication Clarity', weight3: 40,
+    question1: '',
+    question2: ''
+  });
 
   // LOAD DATA FROM SERVICES
   const reloadData = () => {
@@ -415,6 +492,8 @@ export default function EnterpriseCenter({ currentUser, lang = 'FR' }: Enterpris
           { id: 'teams', label: lang === 'FR' ? "Équipes" : "Teams Ledger", icon: Layers },
           { id: 'members', label: lang === 'FR' ? "Membres & Invites" : "Members Flow", icon: Users },
           { id: 'seats', label: lang === 'FR' ? "Licences & Sièges" : "Seat Management", icon: Shield },
+          { id: 'ats', label: lang === 'FR' ? "Intégration ATS" : "ATS Connectors", icon: RefreshCw },
+          { id: 'frameworks', label: lang === 'FR' ? "Modèles d'Entretien" : "Interview Frameworks", icon: Sliders },
           { id: 'analytics', label: lang === 'FR' ? "Analyses Partagées" : "Shared Analytics", icon: PieChart },
           { id: 'settings', label: lang === 'FR' ? "Paramètres" : "Workspace Settings", icon: Settings }
         ].map((tab) => {
@@ -572,6 +651,25 @@ export default function EnterpriseCenter({ currentUser, lang = 'FR' }: Enterpris
                     )}
                   </div>
                 </div>
+
+                <div className="pt-2 bg-stone-50 rounded-xl p-4 text-xs space-y-2">
+                  <span className="text-[9px] uppercase font-mono font-bold text-stone-450">{lang === 'FR' ? "INTEGRATIONS ET MODELES" : "INTEGRATIONS & COGNITIVE MODEL"}</span>
+                  <div className="space-y-1.5 font-semibold text-stone-700 text-[11px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-stone-500">Active ATS:</span>
+                      <span className="text-stone-900 flex items-center gap-1 font-bold">
+                        🟢 Greenhouse (Luxe)
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-stone-500">{lang === 'FR' ? "Rubrique:" : "Active Rubric:"}</span>
+                      <span className="text-stone-900 truncate max-w-[120px] font-bold" title={frameworks.find(f => f.isActive)?.name}>
+                        {frameworks.find(f => f.isActive)?.name || 'Default Shana Rubric'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
               </div>
 
               {/* AUDIT LOGS FOR THIS WORKSPACE */}
@@ -1501,6 +1599,633 @@ export default function EnterpriseCenter({ currentUser, lang = 'FR' }: Enterpris
               </form>
             ) : null}
 
+          </div>
+        )}
+
+        {/* SECTION ATS INTEGRATION */}
+        {activeTab === 'ats' && (
+          <div className="space-y-6 animate-fade-in text-left" id="enterprise-view-ats">
+            <div className="bg-white border border-stone-200 p-6 rounded-[24px] shadow-2xs space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="space-y-1">
+                  <h4 className="font-sans font-bold text-sm text-stone-900">
+                    {lang === 'FR' ? `Connecteurs & Synchronisation ATS — ${activeOrgObj?.name}` : `ATS Integration & Auto-Sync — ${activeOrgObj?.name}`}
+                  </h4>
+                  <p className="text-[11px] text-[#6B7280] font-semibold">
+                    {lang === 'FR' ? "Connectez votre outil de suivi des candidatures (Applicant Tracking System) pour importer les offres et exporter les scores des entretiens Shana." : "Synchronize active positions from your corporate Applicant Tracking System and automatically export candidate interview scoring reports."}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSyncingAts(true);
+                    triggerFeedback(lang === 'FR' ? "Lancement de la synchronisation bidirectionnelle..." : "Initiating bidirectional synchronization pipeline...");
+                    setTimeout(() => {
+                      setIsSyncingAts(false);
+                      const now = new Date();
+                      const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+                      setAtsConnections(prev => prev.map(c => c.id === selectedAts ? { ...c, status: 'connected', lastSynced: timeStr, jobCount: 14 } : c));
+                      setAtsLogs(prev => [
+                        { id: 'l_new_' + Math.random(), time: timeStr, type: 'success', msg: lang === 'FR' ? `Mise à jour réussie : Synchronisation complète effectuée avec ${selectedAts.toUpperCase()}` : `Sync verified: Bidirectional schema sync completed with ${selectedAts.toUpperCase()}` },
+                        ...prev
+                      ]);
+                      triggerFeedback(lang === 'FR' ? "Synchronisation ATS terminée !" : "ATS Synchronization completed successfully!");
+                    }, 1500);
+                  }}
+                  disabled={isSyncingAts}
+                  className={`px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95 ${isSyncingAts ? 'opacity-60 cursor-not-allowed' : ''}`}
+                >
+                  <RefreshCw className={`w-4 h-4 ${isSyncingAts ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingAts ? (lang === 'FR' ? "Synchronisation..." : "Syncing Ledgers...") : (lang === 'FR' ? "Synchroniser Maintenant" : "Trigger Sync Now")}</span>
+                </button>
+              </div>
+
+              {/* ATS Selector & Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                
+                {/* Left side list of systems */}
+                <div className="lg:col-span-1 space-y-3">
+                  <span className="text-[10px] uppercase font-mono text-stone-450 font-bold block">
+                    {lang === 'FR' ? "SYSTEMES COMPATIBLES" : "AVAILABLE PROVIDERS"}
+                  </span>
+                  
+                  <div className="space-y-2">
+                    {atsConnections.map(c => {
+                      const isSelected = c.id === selectedAts;
+                      return (
+                        <button
+                          type="button"
+                          key={c.id}
+                          onClick={() => {
+                            setSelectedAts(c.id);
+                            if (c.status === 'connected') {
+                              setAtsForm({
+                                apiKey: 'gh_live_••••••••9a2b',
+                                subdomain: c.subdomain || 'loreal-luxe',
+                                webhookSecret: 'whsec_8fb4a1a9e223'
+                              });
+                            } else {
+                              setAtsForm({ apiKey: '', subdomain: '', webhookSecret: '' });
+                            }
+                          }}
+                          className={`w-full p-3.5 rounded-xl border text-left transition-all flex justify-between items-center cursor-pointer ${
+                            isSelected 
+                              ? 'bg-violet-50/40 border-violet-200 text-stone-900 shadow-2xs' 
+                              : 'bg-stone-50/50 border-stone-200 hover:bg-stone-50 hover:border-stone-300 text-stone-600'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-xl">{c.logo}</span>
+                            <div>
+                              <p className="font-sans font-bold text-xs text-stone-900">{c.name}</p>
+                              <p className="font-mono text-[9px] text-stone-400">
+                                {c.status === 'connected' ? `Jobs: ${c.jobCount}` : 'Not configured'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <span className={`w-2 h-2 rounded-full ${c.status === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-stone-300'}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Center Settings config */}
+                <div className="lg:col-span-3 border border-stone-200 rounded-2xl p-6 space-y-6 text-left">
+                  
+                  {/* Provider Header details */}
+                  <div className="flex items-center justify-between border-b border-stone-100 pb-4">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{atsConnections.find(c => c.id === selectedAts)?.logo}</span>
+                      <div>
+                        <h5 className="font-sans font-extrabold text-stone-900 text-sm">
+                          {lang === 'FR' ? `Configuration d'Intégration ${atsConnections.find(c => c.id === selectedAts)?.name}` : `${atsConnections.find(c => c.id === selectedAts)?.name} Connection Settings`}
+                        </h5>
+                        <p className="text-[11px] text-stone-500 font-medium">
+                          {lang === 'FR' ? "Définissez les clés d'API et règles de mapping de statut pour ce connecteur." : "Define secure developer credentials, subdomain endpoints, and stage transition mapping rules."}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      {atsConnections.find(c => c.id === selectedAts)?.status === 'connected' ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAtsConnections(prev => prev.map(c => c.id === selectedAts ? { ...c, status: 'disconnected', apiKey: '', subdomain: '', lastSynced: 'Never', jobCount: 0 } : c));
+                            triggerFeedback(lang === 'FR' ? "Connecteur déconnecté" : "ATS connector disconnected");
+                          }}
+                          className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-bold uppercase rounded-lg border border-rose-150 cursor-pointer transition-all"
+                        >
+                          Disconnect
+                        </button>
+                      ) : (
+                        <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-[10px] font-bold uppercase rounded-lg border border-stone-200">
+                          Inactive
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Form */}
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!atsForm.apiKey || !atsForm.subdomain) {
+                      triggerFeedback(lang === 'FR' ? "Tous les champs de connexion sont requis." : "All connection fields are required.", 'error');
+                      return;
+                    }
+                    setAtsConnections(prev => prev.map(c => c.id === selectedAts ? { ...c, status: 'connected', apiKey: atsForm.apiKey, subdomain: atsForm.subdomain, jobCount: 14 } : c));
+                    triggerFeedback(lang === 'FR' ? "Configuration enregistrée et validée !" : "Credentials saved and validated successfully!");
+                  }} className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs font-semibold text-stone-700">
+                    
+                    <div className="space-y-1">
+                      <label className="text-[10px] uppercase font-mono text-stone-450 block">{lang === 'FR' ? "Clé d'API Shana-ATS" : "ATS API Write Token"}</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="e.g. gh_live_secret..."
+                        value={atsForm.apiKey}
+                        onChange={(e) => setAtsForm({ ...atsForm, apiKey: e.target.value })}
+                        className="w-full bg-stone-50 border border-stone-200 rounded-xl p-2.5 font-mono text-stone-800"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] uppercase font-mono text-stone-450 block">{lang === 'FR' ? "Sous-Domaine d'Entreprise" : "Tenant Subdomain Prefix"}</label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          required
+                          placeholder="company-name"
+                          value={atsForm.subdomain}
+                          onChange={(e) => setAtsForm({ ...atsForm, subdomain: e.target.value })}
+                          className="w-full bg-stone-50 border border-stone-200 rounded-xl p-2.5 text-stone-800"
+                        />
+                        <span className="font-mono text-stone-400 text-[10px] shrink-0">.greenhouse.io</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-[10px] uppercase font-mono text-stone-450 block">{lang === 'FR' ? "Secret pour Webhooks (Signature verification)" : "Webhook Secret Key"}</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. whsec_secret..."
+                        value={atsForm.webhookSecret}
+                        onChange={(e) => setAtsForm({ ...atsForm, webhookSecret: e.target.value })}
+                        className="w-full bg-stone-50 border border-stone-200 rounded-xl p-2.5 font-mono text-stone-800"
+                      />
+                    </div>
+
+                    {/* Stage transition mappings */}
+                    <div className="space-y-4 md:col-span-2 pt-3 border-t border-stone-100">
+                      <span className="text-[10px] uppercase font-mono text-stone-450 font-bold block">
+                        {lang === 'FR' ? "MAPPING DES ETAPES D'ENTRETIEN Shana ↔ ATS" : "INTERVIEW STAGE CORRELATION MAPPINGS"}
+                      </span>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 space-y-3">
+                          <p className="font-sans font-bold text-stone-900 text-[11px]">{lang === 'FR' ? "Trigger d'importation" : "Inbound Trigger"}</p>
+                          <div className="flex items-center justify-between text-[11px] text-stone-600">
+                            <span>When candidate moves to ATS stage:</span>
+                            <select className="bg-white border border-stone-200 rounded px-1.5 py-0.5 font-bold" defaultValue="Cognitive Assessment">
+                              <option>Phone Screen</option>
+                              <option value="Cognitive Assessment">Cognitive Assessment</option>
+                              <option>HR Interview</option>
+                            </select>
+                          </div>
+                          <p className="text-[10px] text-stone-400 leading-normal italic font-medium">Shana will automatically dispatch a personalized invitation with chosen language preferences.</p>
+                        </div>
+
+                        <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 space-y-3">
+                          <p className="font-sans font-bold text-stone-900 text-[11px]">{lang === 'FR' ? "Trigger d'exportation" : "Outbound Export"}</p>
+                          <div className="flex items-center justify-between text-[11px] text-stone-600">
+                            <span>When Shana assessment completes:</span>
+                            <select className="bg-white border border-stone-200 rounded px-1.5 py-0.5 font-bold" defaultValue="Move to 'Assessment Pass'">
+                              <option value="Move to 'Assessment Pass'">Move to "Assessment Pass"</option>
+                              <option>Update Candidate Fields</option>
+                              <option>Reject and Archive</option>
+                            </select>
+                          </div>
+                          <p className="text-[10px] text-stone-400 leading-normal italic font-medium">Export raw transcript, behavioral insights, and average score directly into applicant folder.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 md:col-span-2 flex justify-end">
+                      <button
+                        type="submit"
+                        className="px-5 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
+                      >
+                        {lang === 'FR' ? "Valider & Enregistrer" : "Validate & Save Credentials"}
+                      </button>
+                    </div>
+
+                  </form>
+
+                </div>
+
+              </div>
+
+              {/* Sync Audit Trail */}
+              <div className="bg-stone-900 text-stone-100 p-6 rounded-[24px] border border-stone-800 space-y-4">
+                <div className="flex justify-between items-center border-b border-stone-800 pb-3">
+                  <div className="space-y-0.5 text-left">
+                    <h5 className="font-sans font-bold text-xs text-white">
+                      {lang === 'FR' ? "Journal de Synchronisation ATS Temps-Réel" : "Real-Time ATS Sync Telemetry Logs"}
+                    </h5>
+                    <p className="text-[10px] text-stone-400 font-semibold">
+                      {lang === 'FR' ? "Auditez les évènements de requêtes HTTP et transferts de données candidats." : "Detailed audit logs tracking outgoing webhook payload dispatches and candidate profile updates."}
+                    </p>
+                  </div>
+                  <span className="px-2 py-0.5 bg-violet-500/10 text-violet-400 rounded text-[9px] font-mono border border-violet-500/20 font-bold uppercase tracking-wider">
+                    SECURED WEBHOOK DISPATCHER
+                  </span>
+                </div>
+
+                <div className="divide-y divide-stone-800 font-mono text-[10px] max-h-48 overflow-y-auto space-y-2.5 text-left">
+                  {atsLogs.map(log => (
+                    <div key={log.id} className="pt-2.5 flex items-start gap-4">
+                      <span className="text-stone-500 shrink-0 font-bold">{log.time}</span>
+                      <span className={`px-1.5 py-0.2 rounded shrink-0 font-extrabold ${
+                        log.type === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'
+                      }`}>
+                        {log.type.toUpperCase()}
+                      </span>
+                      <span className="text-stone-300 leading-normal font-medium">{log.msg}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* SECTION 8: COMPANY SPECIFIC INTERVIEW FRAMEWORKS */}
+        {activeTab === 'frameworks' && (
+          <div className="space-y-6 animate-fade-in text-left" id="enterprise-view-frameworks">
+            <div className="bg-white border border-stone-200 p-6 rounded-[24px] shadow-2xs space-y-6">
+              
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-stone-100 pb-5">
+                <div className="space-y-1 text-left">
+                  <h4 className="font-sans font-bold text-sm text-stone-900">
+                    {lang === 'FR' ? `Modèles d'Entretien & Rubriques Métiers — ${activeOrgObj?.name}` : `Bespoke Interview Frameworks & Skill Rubrics — ${activeOrgObj?.name}`}
+                  </h4>
+                  <p className="text-[11px] text-[#6B7280] font-semibold">
+                    {lang === 'FR' ? "Définissez des critères d'évaluation uniques par rôle, incluez des questions comportementales imposées et configurez les directives de l'IA Shana." : "Build tailored evaluation blueprints, mandate specific question trees, and program custom AI directives for the virtual interviewer."}
+                  </p>
+                </div>
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setShowFrameworkForm(!showFrameworkForm)}
+                    className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>{showFrameworkForm ? (lang === 'FR' ? "Fermer le Panel" : "Close Blueprint Builder") : (lang === 'FR' ? "Créer un Modèle" : "Create Interview Blueprint")}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* CREATE FRAMEWORK FORM */}
+              {showFrameworkForm && (
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!frameworkForm.name || !frameworkForm.targetRole) {
+                    triggerFeedback(lang === 'FR' ? "Le nom et le rôle ciblé sont requis." : "Blueprint Name and Target Role are required.", "error");
+                    return;
+                  }
+
+                  const newFw = {
+                    id: 'fw_' + Math.random(),
+                    name: frameworkForm.name,
+                    targetRole: frameworkForm.targetRole,
+                    creator: currentUser.email,
+                    skills: [
+                      { name: frameworkForm.skill1, weight: Number(frameworkForm.weight1) },
+                      { name: frameworkForm.skill2, weight: Number(frameworkForm.weight2) },
+                      { name: frameworkForm.skill3, weight: Number(frameworkForm.weight3) }
+                    ],
+                    aiDirectives: frameworkForm.aiDirectives || "Enforce core role alignment assessment.",
+                    questions: [frameworkForm.question1, frameworkForm.question2].filter(Boolean),
+                    isActive: false
+                  };
+
+                  setFrameworks(prev => [...prev, newFw]);
+                  setFrameworkForm({
+                    name: '',
+                    targetRole: '',
+                    aiDirectives: '',
+                    skill1: 'Cultural Alignment', weight1: 30,
+                    skill2: 'Technical Aptitude', weight2: 30,
+                    skill3: 'Communication Clarity', weight3: 40,
+                    question1: '',
+                    question2: ''
+                  });
+                  setShowFrameworkForm(false);
+                  triggerFeedback(lang === 'FR' ? "Modèle d'entretien créé avec succès !" : "Interview blueprint created successfully!");
+                }} className="bg-stone-50 border border-stone-200 p-6 rounded-[24px] space-y-5 animate-fade-in text-xs font-semibold text-stone-700 text-left">
+                  <h5 className="font-sans font-extrabold text-stone-900 text-xs">
+                    {lang === 'FR' ? "Concepteur de Modèle d'Entretien" : "Bespoke Framework Blueprint Constructor"}
+                  </h5>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] uppercase font-mono text-stone-450 block">{lang === 'FR' ? "Nom du Modèle" : "Framework Blueprint Name"}</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Cognitive Engineering Senior Rubric"
+                        value={frameworkForm.name}
+                        onChange={(e) => setFrameworkForm({ ...frameworkForm, name: e.target.value })}
+                        className="w-full bg-white border border-stone-200 rounded-xl p-2.5 text-stone-850"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] uppercase font-mono text-stone-450 block">{lang === 'FR' ? "Poste / Rôle Cible" : "Target Job Role"}</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Cloud Lead Architect"
+                        value={frameworkForm.targetRole}
+                        onChange={(e) => setFrameworkForm({ ...frameworkForm, targetRole: e.target.value })}
+                        className="w-full bg-white border border-stone-200 rounded-xl p-2.5 text-stone-855"
+                      />
+                    </div>
+
+                    {/* Skill grid weight */}
+                    <div className="md:col-span-2 space-y-2 pt-2 border-t border-stone-100">
+                      <label className="text-[10px] uppercase font-mono text-stone-450 block">
+                        {lang === 'FR' ? "Pondération des compétences (La somme doit être égale à 100)" : "Skill Evaluation Matrix & Weight Assignment (Sum must equal 100%)"}
+                      </label>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-white p-3.5 border border-stone-200 rounded-xl space-y-2">
+                          <input
+                            type="text"
+                            value={frameworkForm.skill1}
+                            onChange={(e) => setFrameworkForm({ ...frameworkForm, skill1: e.target.value })}
+                            className="w-full bg-stone-50 border border-stone-150 rounded px-2 py-1"
+                          />
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] text-stone-400">Weight:</span>
+                            <input
+                              type="number"
+                              min="0" max="100"
+                              value={frameworkForm.weight1}
+                              onChange={(e) => setFrameworkForm({ ...frameworkForm, weight1: Number(e.target.value) })}
+                              className="w-14 bg-stone-50 border border-stone-150 rounded px-1 py-0.5 text-right font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="bg-white p-3.5 border border-stone-200 rounded-xl space-y-2">
+                          <input
+                            type="text"
+                            value={frameworkForm.skill2}
+                            onChange={(e) => setFrameworkForm({ ...frameworkForm, skill2: e.target.value })}
+                            className="w-full bg-stone-50 border border-stone-150 rounded px-2 py-1"
+                          />
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] text-stone-400">Weight:</span>
+                            <input
+                              type="number"
+                              min="0" max="100"
+                              value={frameworkForm.weight2}
+                              onChange={(e) => setFrameworkForm({ ...frameworkForm, weight2: Number(e.target.value) })}
+                              className="w-14 bg-stone-50 border border-stone-150 rounded px-1 py-0.5 text-right font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="bg-white p-3.5 border border-stone-200 rounded-xl space-y-2">
+                          <input
+                            type="text"
+                            value={frameworkForm.skill3}
+                            onChange={(e) => setFrameworkForm({ ...frameworkForm, skill3: e.target.value })}
+                            className="w-full bg-stone-50 border border-stone-150 rounded px-2 py-1"
+                          />
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] text-stone-400">Weight:</span>
+                            <input
+                              type="number"
+                              min="0" max="100"
+                              value={frameworkForm.weight3}
+                              onChange={(e) => setFrameworkForm({ ...frameworkForm, weight3: Number(e.target.value) })}
+                              className="w-14 bg-stone-50 border border-stone-150 rounded px-1 py-0.5 text-right font-mono"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* AI Prompt Directives */}
+                    <div className="md:col-span-2 space-y-1">
+                      <label className="text-[10px] uppercase font-mono text-stone-450 block">
+                        {lang === 'FR' ? "Directives de Personnalisation de l'IA (Instructions pour Shana)" : "Virtual AI Recruiter Directives (Core Prompt Overrides)"}
+                      </label>
+                      <textarea
+                        rows={2}
+                        placeholder="Enforce high-density architectural questions. Present failure scenarios regarding state-consistency across active-active geographic zones..."
+                        value={frameworkForm.aiDirectives}
+                        onChange={(e) => setFrameworkForm({ ...frameworkForm, aiDirectives: e.target.value })}
+                        className="w-full bg-white border border-stone-200 rounded-xl p-2.5 text-stone-800 leading-relaxed font-sans font-medium text-[11px]"
+                      />
+                    </div>
+
+                    {/* Mandatory Questions */}
+                    <div className="md:col-span-2 space-y-2">
+                      <label className="text-[10px] uppercase font-mono text-stone-450 block">{lang === 'FR' ? "Questions obligatoires à poser par l'IA" : "Mandated Interview Behavioral Questions"}</label>
+                      <input
+                        type="text"
+                        placeholder="Question 1 (e.g. Explain how you handle synchronization conflicts...)"
+                        value={frameworkForm.question1}
+                        onChange={(e) => setFrameworkForm({ ...frameworkForm, question1: e.target.value })}
+                        className="w-full bg-white border border-stone-200 rounded-xl p-2.5 text-stone-850"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Question 2 (e.g. How do you manage mentoring engineers who resist standards?)"
+                        value={frameworkForm.question2}
+                        onChange={(e) => setFrameworkForm({ ...frameworkForm, question2: e.target.value })}
+                        className="w-full bg-white border border-stone-200 rounded-xl p-2.5 text-stone-850"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3.5 pt-3 border-t border-stone-150">
+                    <button
+                      type="button"
+                      onClick={() => setShowFrameworkForm(false)}
+                      className="px-4 py-2 bg-stone-150 hover:bg-stone-200 text-stone-700 rounded-xl"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl active:scale-95 transition-all"
+                    >
+                      Initialize Framework
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* LIST FRAMEWORKS */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 text-left">
+                
+                {/* Framework list sidebar */}
+                <div className="lg:col-span-1 space-y-3">
+                  <span className="text-[10px] uppercase font-mono text-stone-450 font-bold block">
+                    {lang === 'FR' ? "RUBRIQUES CONFIGUREES" : "CONFIGURED BLUEPRINTS"}
+                  </span>
+
+                  <div className="space-y-2.5">
+                    {frameworks.map(fw => {
+                      const isSelected = fw.id === selectedFrameworkId;
+                      return (
+                        <div
+                          key={fw.id}
+                          className={`p-4 rounded-xl border text-left transition-all space-y-2 relative ${
+                            isSelected
+                              ? 'bg-violet-50/20 border-violet-200 shadow-2xs'
+                              : 'bg-stone-50/50 border-stone-200 hover:bg-stone-50 hover:border-stone-300'
+                          }`}
+                        >
+                          <div className="flex justify-between items-start gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedFrameworkId(fw.id)}
+                              className="text-left font-sans font-black text-stone-900 text-xs hover:underline cursor-pointer block font-extrabold"
+                            >
+                              {fw.name}
+                            </button>
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${fw.isActive ? 'bg-emerald-500 animate-pulse' : 'bg-stone-300'}`} />
+                          </div>
+
+                          <p className="text-[10px] text-stone-500 font-semibold">{fw.targetRole}</p>
+
+                          <div className="flex items-center justify-between pt-1 text-[10px] font-bold">
+                            <span className="font-mono text-stone-400">ID: {fw.id.substring(0, 8)}</span>
+                            {fw.isActive ? (
+                              <span className="text-emerald-700 uppercase font-bold text-[9px] bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                                {lang === 'FR' ? "ACTIF" : "ACTIVE BLUEPRINT"}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFrameworks(prev => prev.map(f => f.id === fw.id ? { ...f, isActive: true } : { ...f, isActive: false }));
+                                  triggerFeedback(lang === 'FR' ? "Modèle d'entretien défini comme modèle actif !" : "Interview blueprint set as primary active template!");
+                                }}
+                                className="text-violet-700 hover:underline cursor-pointer"
+                              >
+                                {lang === 'FR' ? "Activer" : "Set Active"}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Framework details view */}
+                <div className="lg:col-span-2 border border-stone-200 rounded-2xl p-6 space-y-6 text-xs text-stone-700 font-semibold text-left">
+                  {(() => {
+                    const fw = frameworks.find(f => f.id === selectedFrameworkId);
+                    if (!fw) return <p className="text-stone-450 italic">Select a framework blueprint to inspect.</p>;
+                    return (
+                      <div className="space-y-6">
+                        <div className="flex justify-between items-start border-b border-stone-100 pb-4">
+                          <div className="space-y-0.5 text-left">
+                            <h5 className="font-sans font-extrabold text-stone-950 text-sm">
+                              {fw.name}
+                            </h5>
+                            <p className="text-[11px] text-stone-500">
+                              {lang === 'FR' ? `Rôle ciblé : ${fw.targetRole}` : `Target recruitment role profile: ${fw.targetRole}`}
+                            </p>
+                          </div>
+                          
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(lang === 'FR' ? "Supprimer cette rubrique ?" : "Permanently remove this evaluation blueprint?")) {
+                                setFrameworks(prev => prev.filter(f => f.id !== fw.id));
+                                setSelectedFrameworkId(frameworks[0]?.id || '');
+                                triggerFeedback(lang === 'FR' ? "Rubrique effacée" : "Interview blueprint removed.");
+                              }
+                            }}
+                            className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-stone-100 rounded-lg cursor-pointer transition-all"
+                            title="Delete framework blueprint"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {/* SKILLS CHIPS AND WEIGHT DISTRIBUTION */}
+                        <div className="space-y-3">
+                          <span className="text-[10px] uppercase font-mono text-stone-450 font-bold block">
+                            {lang === 'FR' ? "MATRICE DES CRITERES DE EVALUATION" : "COMPETENCY EVALUATION MATRIX"}
+                          </span>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {fw.skills.map((s, idx) => (
+                              <div key={idx} className="bg-stone-50 p-3.5 rounded-xl border border-stone-150 space-y-1.5">
+                                <div className="flex justify-between text-[11px]">
+                                  <span className="font-sans font-bold text-stone-900">{s.name}</span>
+                                  <span className="font-mono font-black text-violet-700">{s.weight}%</span>
+                                </div>
+                                <div className="w-full bg-stone-200 h-1.5 rounded-full overflow-hidden">
+                                  <div className="bg-violet-600 h-full rounded-full" style={{ width: `${s.weight}%` }} />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* AI Instructions */}
+                        <div className="space-y-2">
+                          <span className="text-[10px] uppercase font-mono text-stone-450 font-bold block">
+                            {lang === 'FR' ? "CONSIGNES DU VIRTUAL INTERVIEWER Shana" : "SHANA COGNITIVE INTERVIEW PROMPT DIRECTIVES"}
+                          </span>
+                          <div className="bg-stone-50 border border-stone-200 rounded-xl p-4 text-stone-800 leading-relaxed font-sans font-medium text-[11px]">
+                            {fw.aiDirectives}
+                          </div>
+                        </div>
+
+                        {/* Questions */}
+                        <div className="space-y-2">
+                          <span className="text-[10px] uppercase font-mono text-stone-450 font-bold block">
+                            {lang === 'FR' ? "QUESTIONS COMPORTEMENTALES OBLIGATOIRES" : "MANDATED BEHAVIORAL QUESTIONS"}
+                          </span>
+                          <div className="space-y-2 text-left">
+                            {fw.questions.map((q, idx) => (
+                              <div key={idx} className="bg-violet-50/15 border border-violet-100 p-3.5 rounded-xl flex items-start gap-2.5">
+                                <span className="p-1 bg-violet-600/10 text-violet-700 rounded text-[10px] font-mono font-bold">
+                                  Q{idx+1}
+                                </span>
+                                <p className="text-stone-900 leading-normal text-[11px] font-medium">{q}</p>
+                              </div>
+                            ))}
+                            {fw.questions.length === 0 && (
+                              <p className="text-stone-400 italic text-[11px]">{lang === 'FR' ? "Aucune question comportementale imposée." : "No explicit mandated questions added yet."}</p>
+                            )}
+                          </div>
+                        </div>
+
+                      </div>
+                    );
+                  })()}
+                </div>
+
+              </div>
+
+            </div>
           </div>
         )}
 

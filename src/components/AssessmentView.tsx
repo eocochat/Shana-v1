@@ -11,6 +11,7 @@ import { calculateIPS } from '../lib/ips';
 import { ShanaOrchestrator } from '../lib/orchestrator';
 import MirrorAssessmentRoom from './MirrorAssessmentRoom';
 import PreSessionWarning from './PreSessionWarning';
+import PostInterviewCoachingView from './PostInterviewCoachingView';
 import { InterviewVoiceManager } from '../lib/InterviewVoiceManager';
 import { 
   Camera, 
@@ -2036,6 +2037,59 @@ export default function AssessmentView({ user, lang, onSessionComplete, onChange
 
         {/* ==================== STEP 4 — FINAL EVALUATION (RESULT VIEW) ==================== */}
         {assessmentState === 'final_evaluation' && evaluationData && (
+          <motion.div
+            key="evaluation"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ duration: 0.35 }}
+            className="space-y-8"
+          >
+            {/* Header info */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#F3F4F6] pb-5">
+              <div>
+                <span className="inline-flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-widest text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  {lang === 'EN' ? "OUTCOME REGISTERED" : "RÉSULTATS INDEXÉS"}
+                </span>
+                <h1 id="evaluated-readiness-title" className="text-2xl md:text-3xl font-sans font-extrabold text-[#1A2B3C] tracking-tight mt-3">
+                  {lang === 'EN' ? "Post-Interview Coaching Platform" : "Plateforme d'Accompagnement Post-Entretien"}
+                </h1>
+                <p className="text-xs text-[#6B7280] font-semibold mt-1">
+                  {lang === 'EN' 
+                    ? "Interactive coaching journey and multi-dimensional readiness performance telemetry." 
+                    : "Parcours d'accompagnement interactif et télémétrie de diagnostic de performance multidimensionnelle."}
+                </p>
+              </div>
+
+              {/* Conclude Action */}
+              <div>
+                <button
+                  onClick={() => {
+                    transitionSessionState('IDLE');
+                    onChangeTab('home');
+                  }}
+                  className="px-5 py-3 bg-[#18633F] hover:bg-[#1f7c50] text-white font-black text-xs uppercase tracking-wider rounded-xl border-2 border-stone-950 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0px_0px_rgba(17,17,17,1)] transition-all flex items-center justify-center gap-2 cursor-pointer font-sans"
+                >
+                  <Home className="w-4 h-4 text-white" />
+                  <span>{lang === 'EN' ? "Conclude & Go to Dashboard" : "Conclure & Voir le Tableau de Bord"}</span>
+                </button>
+              </div>
+            </div>
+
+            <PostInterviewCoachingView 
+              user={user} 
+              session={evaluationData} 
+              history={StorageService.getHistory(user.id || 'usr_candidate') || []} 
+              lang={lang} 
+              onClose={() => { transitionSessionState('IDLE'); onChangeTab('home'); }} 
+              onChangeTab={onChangeTab} 
+            />
+          </motion.div>
+        )}
+
+        {/* ==================== DEPRECATED STATIC VIEW FOR COMPLIANCE ==================== */}
+        {false && assessmentState === 'final_evaluation' && evaluationData && (
           <motion.div
             key="evaluation"
             initial={{ opacity: 0, y: 15 }}

@@ -70,29 +70,29 @@ export function calculateIPS(
   // Detect simulated/verbal placeholder standard defenses (since voice is analyzed by energy levels)
   const isPlaceholderSpoken = lowerAnswer.includes('verbal defense captured') && lowerAnswer.includes('standard');
 
-  let clarity = 80;
-  let structure = 75;
-  let confidence = 78;
-  let relevance = 82;
-  let conciseness = 85;
+  let clarity = 55;
+  let structure = 45;
+  let confidence = 50;
+  let relevance = 50;
+  let conciseness = 55;
 
   // Stable offset based on the question text so different questions naturally have distinct stable baselines
-  const questionOffset = getDeterministicOffset(questionText, 6); // 0 to 5
-  const answerOffset = getDeterministicOffset(cleanedAnswer, 5); // 0 to 4
+  const questionOffset = getDeterministicOffset(questionText, 5); // 0 to 4
+  const answerOffset = getDeterministicOffset(cleanedAnswer, 4); // 0 to 3
 
   if (isPlaceholderSpoken) {
-    // If it is an oral response captured through energy signals, map to high-quality baseline
-    clarity = 85 + questionOffset;
-    structure = 80 + answerOffset;
-    confidence = 88 + questionOffset - answerOffset;
-    relevance = 84 + questionOffset;
-    conciseness = 90 - answerOffset;
+    // If it is an oral response captured through energy signals, map to moderate baseline (around 68-75)
+    clarity = 70 + questionOffset;
+    structure = 65 + answerOffset;
+    confidence = 72 + questionOffset - answerOffset;
+    relevance = 68 + questionOffset;
+    conciseness = 74 - answerOffset;
   } else {
     // Perform deterministic natural language feature extraction
     const words = cleanedAnswer.split(/\s+/).filter(w => w.length > 0);
     const wordCount = words.length;
 
-    // 1. FILLER WORDS & HESITATION -> IMPACTS CLARITY
+    // 1. FILLER WORDS & HESITATION -> IMPACTS CLARITY (Harsher deductions)
     const enFillers = ["uh", "um", "like", "basically", "actually", "literally", "you know", "sort of", "kind of", "so basically"];
     const frFillers = ["euh", "bah", "du coup", "en fait", "voilà", "genre", "donc", "tu vois", "en gros", "alors", "après"];
     const targetFillers = lang === 'EN' ? enFillers : frFillers;
@@ -106,15 +106,16 @@ export function calculateIPS(
       }
     });
 
-    if (fillerCount === 0) clarity = 95;
-    else if (fillerCount <= 2) clarity = 85;
-    else if (fillerCount <= 4) clarity = 72;
-    else clarity = 55;
+    if (fillerCount === 0) clarity = 88;
+    else if (fillerCount <= 2) clarity = 74;
+    else if (fillerCount <= 4) clarity = 58;
+    else clarity = 38;
 
-    // Adjust clarity based on extreme lengths
-    if (wordCount < 10) clarity = Math.max(30, clarity - 30);
+    // Adjust clarity based on extreme short lengths
+    if (wordCount < 12) clarity = Math.max(15, clarity - 45);
+    else if (wordCount < 30) clarity = Math.max(25, clarity - 25);
 
-    // 2. STAR METHOD & LOGICAL MARKERS -> IMPACTS STRUCTURE
+    // 2. STAR METHOD & LOGICAL MARKERS -> IMPACTS STRUCTURE (Stricter requirements)
     const enStructure = ["situation", "task", "action", "result", "role", "impact", "metric", "first", "second", "then", "finally", "outcome", "consequently"];
     const frStructure = ["situation", "tâche", "action", "résultat", "rôle", "impact", "métrique", "d'abord", "ensuite", "puis", "finalement", "objectif"];
     const targetStructure = lang === 'EN' ? enStructure : frStructure;
@@ -126,13 +127,14 @@ export function calculateIPS(
       }
     });
 
-    if (structureMatches >= 4) structure = 98;
-    else if (structureMatches === 3) structure = 88;
-    else if (structureMatches === 2) structure = 78;
-    else if (structureMatches === 1) structure = 68;
-    else structure = 50;
+    if (structureMatches >= 5) structure = 92;
+    else if (structureMatches === 4) structure = 82;
+    else if (structureMatches === 3) structure = 68;
+    else if (structureMatches === 2) structure = 54;
+    else if (structureMatches === 1) structure = 40;
+    else structure = 25;
 
-    // 3. CONFIDENCE INDICATORS -> IMPACTS CONFIDENCE
+    // 3. CONFIDENCE INDICATORS -> IMPACTS CONFIDENCE (Harsher deductions for negative markers)
     const enPositiveConf = ["confident", "absolutely", "definitely", "surely", "successfully", "delivered", "resolved", "strong", "expert", "clear", "managed", "led"];
     const enNegativeConf = ["maybe", "probably", "i think", "just", "try to", "hope", "not sure", "sorry", "dunno"];
     const frPositiveConf = ["confiant", "absolument", "clairement", "précisément", "parfaitement", "réussi", "géré", "dirigé", "assuré", "maîtrisé", "délivré"];
@@ -147,10 +149,10 @@ export function calculateIPS(
     posConfList.forEach(w => { if (lowerAnswer.includes(w)) posCount++; });
     negConfList.forEach(w => { if (lowerAnswer.includes(w)) negCount++; });
 
-    confidence = 75 + (posCount * 4) - (negCount * 6);
-    confidence = Math.max(40, Math.min(100, confidence));
+    confidence = 62 + (posCount * 3) - (negCount * 8);
+    confidence = Math.max(20, Math.min(95, confidence));
 
-    // 4. KEYWORD OVERLAP AND RELEVANCE TO QUESTION -> IMPACTS RELEVANCE
+    // 4. KEYWORD OVERLAP AND RELEVANCE TO QUESTION -> IMPACTS RELEVANCE (Stricter thresholds)
     const questionWords = questionText.toLowerCase()
       .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "")
       .split(/\s+/)
@@ -166,26 +168,26 @@ export function calculateIPS(
     });
 
     if (meaningfulQWords.length === 0) {
-      relevance = 80;
+      relevance = 65;
     } else {
       const ratio = overlapCount / meaningfulQWords.length;
-      if (ratio >= 0.5) relevance = 96;
-      else if (ratio >= 0.3) relevance = 88;
-      else if (ratio >= 0.15) relevance = 78;
-      else relevance = 60;
+      if (ratio >= 0.5) relevance = 90;
+      else if (ratio >= 0.3) relevance = 76;
+      else if (ratio >= 0.15) relevance = 58;
+      else relevance = 35;
     }
 
-    // 5. WORD COUNT SWEET SPOT -> IMPACTS CONCISENESS
-    if (wordCount >= 40 && wordCount <= 180) {
-      conciseness = 95;
-    } else if (wordCount > 180 && wordCount <= 280) {
-      conciseness = 80;
-    } else if (wordCount > 280) {
-      conciseness = 60; // too wordy
-    } else if (wordCount >= 15 && wordCount < 40) {
-      conciseness = 85;
+    // 5. WORD COUNT SWEET SPOT -> IMPACTS CONCISENESS (Optimal is strict, short/long penalizes harshly)
+    if (wordCount >= 50 && wordCount <= 160) {
+      conciseness = 92;
+    } else if (wordCount > 160 && wordCount <= 250) {
+      conciseness = 70;
+    } else if (wordCount > 250) {
+      conciseness = 40; // too wordy
+    } else if (wordCount >= 20 && wordCount < 50) {
+      conciseness = 68;
     } else {
-      conciseness = 50; // too short
+      conciseness = 30; // too short or empty
     }
   }
 

@@ -16,6 +16,7 @@ export interface ToastMessage {
 interface ToastContextType {
   addToast: (toast: Omit<ToastMessage, 'id'>) => void;
   removeToast: (id: string) => void;
+  show: (message: string, type?: ToastType | 'error') => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -159,8 +160,20 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     }, duration);
   }, [removeToast]);
 
+  const show = useCallback((message: string, type?: ToastType | 'error') => {
+    let resolvedType: ToastType = 'info';
+    if (type === 'error') resolvedType = 'warning';
+    else if (type) resolvedType = type as ToastType;
+
+    addToast({
+      title: resolvedType === 'warning' ? 'Alert' : resolvedType === 'success' ? 'Success' : 'Notification',
+      description: message,
+      type: resolvedType,
+    });
+  }, [addToast]);
+
   return (
-    <ToastContext.Provider value={{ addToast, removeToast }}>
+    <ToastContext.Provider value={{ addToast, removeToast, show }}>
       {children}
       <div id="shana-toast-portal" className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-3 w-full max-w-[380px] pointer-events-none">
         <AnimatePresence mode="popLayout">

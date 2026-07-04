@@ -10,6 +10,7 @@ import {
   Check, 
   Loader2, 
   Cpu, 
+  Brain,
   MessageSquare, 
   User, 
   Square,
@@ -31,7 +32,8 @@ import {
   Maximize2,
   Minimize2,
   Sparkles,
-  X
+  X,
+  LockKeyhole
 } from 'lucide-react';
 import { User as UserType, Profile as ProfileType, InterviewBlueprint } from '../types';
 import { StorageService } from '../lib/storage';
@@ -41,6 +43,8 @@ import { LiveSessionTracker, StatsRepository } from '../services/admin/metrics';
 import { SerendipityService } from '../lib/serendipity';
 import { ShanaInsightEngine } from '../lib/insightEngine';
 import { InterviewDirector } from '../lib/director';
+import ShanaIntelligenceCenter from './ShanaIntelligenceCenter';
+import CheckoutModal from './CheckoutModal';
 
 interface InterviewSimulatorProps {
   currentUser: UserType;
@@ -49,6 +53,7 @@ interface InterviewSimulatorProps {
   cvAnalysis?: any;
   history?: any[];
   onBack: () => void;
+  onNavigateTab?: (tab: string) => void;
   surpriseConfig?: any;
 }
 
@@ -58,7 +63,14 @@ interface Message {
   timestamp: string;
 }
 
-export default function InterviewSimulator({ currentUser, currentProfile, blueprint, cvAnalysis, history, onBack, surpriseConfig }: InterviewSimulatorProps) {
+export default function InterviewSimulator({ currentUser, currentProfile, blueprint, cvAnalysis, history, onBack, onNavigateTab, surpriseConfig }: InterviewSimulatorProps) {
+  // Monetization and credit states
+  const [monetization, setMonetization] = useState(() => StorageService.getCandidateMonetization(currentUser.id));
+  const [selectedProductForCheckout, setSelectedProductForCheckout] = useState<string | null>(null);
+  
+  const hasMirrorCredits = monetization.ultraActive || (monetization.freeMirror + monetization.packMirror + monetization.topUpMirror) > 0;
+  const isFrench = currentProfile.language === 'French';
+
   // Configured states
   const [mode, setMode] = useState<'voice' | 'text'>('voice');
   const { checkMilestones } = useMilestoneTracker(currentUser.id);
@@ -108,6 +120,9 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
   // Production Insight Engine states
   const [activeInsight, setActiveInsight] = useState<any | null>(null);
   const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
+  
+  // Real-time Conversation Director State (Phase 22.1)
+  const [conversationState, setConversationState] = useState<any>(null);
   
   // Speech Recognition & Synthesis references
   const recognitionRef = useRef<any>(null);
@@ -251,7 +266,7 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
         let interimTranscript = '';
         let finalTranscript = '';
 
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
+        for (let i = 0; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
             finalTranscript += event.results[i][0].transcript;
           } else {
@@ -259,7 +274,7 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
           }
         }
         
-        const fullText = finalTranscript || interimTranscript;
+        const fullText = finalTranscript + interimTranscript;
         
         if (fullText.trim().length > 0 && isPlayingVoice) {
           setInterruptionCount(prev => prev + 1);
@@ -435,7 +450,19 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
 
   // Speech Helper - Text to speech speaking
   const speakVoice = (text: string) => {
-    if (isMuted) return;
+    if (isMuted) {
+      setIsPlayingVoice(false);
+      if (mode === 'voice' && recognitionRef.current && !isLoading && !isFinished) {
+        setUserInput('');
+        currentTranscriptRef.current = "";
+        try {
+          recognitionRef.current.start();
+        } catch (e) {
+          // Already running
+        }
+      }
+      return;
+    }
     
     stopVoiceSpeaking();
 
@@ -444,73 +471,69 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
 
     setIsPlayingVoice(true);
 
+    if (!InterviewVoiceManager.isAllowed('INTERVIEW_SIMULATOR')) {
+      console.warn("[InterviewSimulator] Speech blocked because we do not own the voice lock.");
+      setIsPlayingVoice(false);
+      return;
+    }
+
     // 1. Play using OpenAI TTS via HTML5 Audio with fallback to local synthesis
     const audioUrl = `/api/interview/speak?text=${encodeURIComponent(cleanText)}`;
-    const audio = new Audio(audioUrl);
-    currentAudioRef.current = audio;
-
+    
     let fallbackTriggered = false;
     const triggerFallback = (reason: string) => {
       if (fallbackTriggered) return;
       fallbackTriggered = true;
       console.warn(`[SHANA Client] ${reason}. Falling back to local SpeechSynthesis.`);
       
-      // Clean up the audio element to prevent continuous buffering or hanging threads
-      try {
-        audio.pause();
-        audio.src = "";
-      } catch (err) {}
-      
-      if (currentAudioRef.current === audio) {
+      InterviewVoiceManager.stopAllActiveOutputs();
+      if (currentAudioRef.current) {
         currentAudioRef.current = null;
       }
       fallbackSpeakVoiceLocal(cleanText);
     };
 
-    // Fail safe timeout: If audio does not start playing within 2000ms, fallback immediately
-    const playTimeout = setTimeout(() => {
-      triggerFallback("Audio playback timeout (2.0s)");
-    }, 2000);
-
-    audio.onplay = () => {
-      clearTimeout(playTimeout);
-    };
-
-    audio.onplaying = () => {
-      clearTimeout(playTimeout);
-    };
-
-    audio.onended = () => {
-      clearTimeout(playTimeout);
-      if (fallbackTriggered) return;
-      setIsPlayingVoice(false);
-      currentAudioRef.current = null;
-      // Automatically unlock/activate the mic for hands-free bidirectional voice interactive turn-taking!
-      if (mode === 'voice' && recognitionRef.current && !isLoading && !isFinished) {
-        setUserInput('');
-        currentTranscriptRef.current = "";
-        try {
-          recognitionRef.current.start();
-        } catch (e) {
-          // Already running or permission issue handles
+    const audio = InterviewVoiceManager.playServerAudio(
+      audioUrl,
+      'INTERVIEW_SIMULATOR',
+      () => {
+        if (fallbackTriggered) return;
+        setIsPlayingVoice(false);
+        currentAudioRef.current = null;
+        // Automatically unlock/activate the mic for hands-free bidirectional voice interactive turn-taking!
+        if (mode === 'voice' && recognitionRef.current && !isLoading && !isFinished) {
+          setUserInput('');
+          currentTranscriptRef.current = "";
+          try {
+            recognitionRef.current.start();
+          } catch (e) {
+            // Already running or permission issue handles
+          }
         }
+      },
+      (err) => {
+        triggerFallback("OpenAI TTS stream error");
       }
-    };
+    );
 
-    audio.onerror = (e) => {
-      clearTimeout(playTimeout);
-      triggerFallback("OpenAI TTS stream error");
-    };
+    if (audio) {
+      currentAudioRef.current = audio;
 
-    audio.play()
-      .then(() => {
-        // Successfully started playing
+      // Fail safe timeout: If audio does not start playing within 2000ms, fallback immediately
+      const playTimeout = setTimeout(() => {
+        triggerFallback("Audio playback timeout (2.0s)");
+      }, 2000);
+
+      audio.onplay = () => {
         clearTimeout(playTimeout);
-      })
-      .catch((err) => {
+      };
+
+      audio.onplaying = () => {
         clearTimeout(playTimeout);
-        triggerFallback(`Audio play rejected: ${err?.message || err}`);
-      });
+      };
+    } else {
+      triggerFallback("Failed to initiate audio object");
+    }
   };
 
   const fallbackSpeakVoiceLocal = (cleanText: string) => {
@@ -536,14 +559,11 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
   };
 
   const stopVoiceSpeaking = () => {
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
+    InterviewVoiceManager.stopAllActiveOutputs();
+    setIsPlayingVoice(false);
     if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
       currentAudioRef.current = null;
     }
-    setIsPlayingVoice(false);
   };
 
   // Toggle mic for Voice mode
@@ -621,7 +641,8 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
           blueprint: blueprint,
           cvAnalysis: cvAnalysis,
           history: history,
-          surpriseConfig: surpriseConfig
+          surpriseConfig: surpriseConfig,
+          conversationState: conversationState // Send preserved state
         })
       });
 
@@ -634,6 +655,11 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
 
       if (!response.ok) {
         throw new Error(resJson.error || 'Simulation failed to generate response.');
+      }
+
+      // Preserve updated conversation state
+      if (resJson.conversationState) {
+        setConversationState(resJson.conversationState);
       }
 
       const interviewerResponse = resJson.response;
@@ -690,16 +716,18 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
 
   // Start simulation action
   const handleInitiateInterview = async () => {
-    // Enforce microphone access first
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(t => t.stop());
-    } catch (err) {
-      console.error("Microphone access is mandatory:", err);
-      setApiError(currentProfile.language === 'French' 
-        ? "L'autorisation d'accès au microphone est obligatoire pour interagir avec Shana. Veuillez l'activer dans vos paramètres." 
-        : "Microphone access is mandatory to interact with Shana. Please authorize microphone access in your browser settings.");
-      return;
+    // Enforce microphone access first if mode is voice
+    if (mode === 'voice') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(t => t.stop());
+      } catch (err) {
+        console.error("Microphone access is mandatory:", err);
+        setApiError(currentProfile.language === 'French' 
+          ? "L'autorisation d'accès au microphone est obligatoire pour interagir en mode Voix. Veuillez l'activer dans vos paramètres ou basculer en mode Texte ci-dessous." 
+          : "Microphone access is mandatory to interact in Voice Mode. Please authorize microphone access in your browser settings or switch to Text Mode below.");
+        return;
+      }
     }
 
     setIsInitialized(true);
@@ -726,7 +754,8 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
           blueprint: blueprint,
           cvAnalysis: cvAnalysis,
           history: history,
-          surpriseConfig: surpriseConfig
+          surpriseConfig: surpriseConfig,
+          conversationState: null // fresh start
         })
       });
 
@@ -739,6 +768,11 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
 
       if (!response.ok) {
         throw new Error(resJson.error || 'Simulation endpoint failed to respond.');
+      }
+
+      // Preserve updated conversation state
+      if (resJson.conversationState) {
+        setConversationState(resJson.conversationState);
       }
 
       const initialQuestion = resJson.response;
@@ -805,6 +839,10 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
     // Save session in History via StorageService
     const existingHistory = StorageService.getHistory(currentUser.id) || [];
     StorageService.saveHistory(currentUser.id, [mockSession, ...existingHistory]);
+
+    // Deduct 1 MIRROR credit upon complete
+    StorageService.consumeCandidateCredit(currentUser.id, 'MIRROR');
+    window.dispatchEvent(new Event('shana_progress_update'));
 
     // Breakthrough Check (MODE 5)
     const breakthrough = SerendipityService.checkBreakthrough(currentUser.id, mockSession, existingHistory);
@@ -1075,9 +1113,69 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
 
               <p className="text-center text-[10px] text-slate-400 leading-relaxed font-semibold max-w-md mx-auto">
                 {currentProfile.language === 'English' 
-                  ? "✓ VOICE INTERACTIVE CAPABILITY: Speaks mock recruiter prompts aloud automatically. Responses are captured via speech dictation." 
-                  : "✓ MODE AUDIO ET VISUEL STRICT : Les questions sont énoncées à haute voix. Répondez face à la caméra en initiant le micro."}
+                  ? "✓ Speeches and voice-interactive capability: Speaks recruiter prompts aloud automatically. Responses can be captured via speech dictation." 
+                  : "✓ MODE AUDIO ET VISUEL INTERACTIF : Les questions sont énoncées à haute voix. Répondez de vive voix ou par écrit."}
               </p>
+            </div>
+
+            {/* Interactive Simulation Mode Selector */}
+            <div className="space-y-3 max-w-xl mx-auto border-t border-slate-800/60 pt-5">
+              <h3 className="text-xs font-mono font-black uppercase tracking-widest text-violet-400 text-center flex items-center justify-center gap-2">
+                <span>
+                  {currentProfile.language === 'English' ? "CHOOSE INTERVIEW INTERACTION MODE" : "MODE D'INTERACTION SOUHAITÉ"}
+                </span>
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('voice');
+                    setApiError(null);
+                  }}
+                  className={`p-4 rounded-2xl border text-left space-y-2 cursor-pointer transition-all duration-250 ${
+                    mode === 'voice'
+                      ? 'border-violet-500 bg-violet-950/20 text-white shadow-lg'
+                      : 'border-slate-800 bg-slate-950/40 hover:bg-slate-900/60 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Mic className={`w-4 h-4 ${mode === 'voice' ? 'text-violet-400' : 'text-slate-500'}`} />
+                    <span className="text-xs font-bold tracking-tight">
+                      {currentProfile.language === 'English' ? "Voice + Camera Mode" : "Mode Voix + Caméra"}
+                    </span>
+                  </div>
+                  <p className="text-[10px] leading-relaxed text-slate-400 font-semibold">
+                    {currentProfile.language === 'English'
+                      ? "Speaks prompts aloud. Dictation-based spoken answers."
+                      : "Questions énoncées de vive voix, réponses dictées au micro."}
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('text');
+                    setApiError(null);
+                  }}
+                  className={`p-4 rounded-2xl border text-left space-y-2 cursor-pointer transition-all duration-250 ${
+                    mode === 'text'
+                      ? 'border-violet-500 bg-violet-950/20 text-white shadow-lg'
+                      : 'border-slate-800 bg-slate-950/40 hover:bg-slate-900/60 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className={`w-4 h-4 ${mode === 'text' ? 'text-violet-400' : 'text-slate-500'}`} />
+                    <span className="text-xs font-bold tracking-tight">
+                      {currentProfile.language === 'English' ? "Text Interactive Mode" : "Mode Écrit + Caméra"}
+                    </span>
+                  </div>
+                  <p className="text-[10px] leading-relaxed text-slate-400 font-semibold">
+                    {currentProfile.language === 'English'
+                      ? "Silent mode. Read prompts and type responses directly."
+                      : "Mode silencieux. Lisez les questions et saisissez par écrit."}
+                  </p>
+                </button>
+              </div>
             </div>
 
             {apiError && (
@@ -1087,16 +1185,89 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
               </div>
             )}
 
-            {/* Launch CTA */}
-            <div className="pt-4 text-center">
-              <button
-                onClick={handleInitiateInterview}
-                className="px-8 py-4 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-mono font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg active:scale-95 cursor-pointer max-w-xs w-full"
-                id="simulation-launch-btn"
-              >
-                {currentProfile.language === 'English' ? "Initiate Job Interview" : "Démarrer la Simulation"}
-              </button>
-            </div>
+            {/* Launch CTA gated by credit availability */}
+            {!hasMirrorCredits ? (
+              <div className="p-4 border-2 border-dashed border-stone-950 bg-stone-50 rounded-2xl space-y-3.5 text-left animate-fade-in mt-4 shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] max-w-xl mx-auto" id="simulator-credits-locked-card">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-9 h-9 bg-[#EDC154] border-2 border-stone-950 text-stone-950 rounded-xl flex items-center justify-center shrink-0 shadow-[1px_1px_0px_0px_rgba(17,17,17,1)]">
+                    <LockKeyhole className="w-4.5 h-4.5" />
+                  </div>
+                  <div>
+                    <span className="font-mono text-[8px] uppercase tracking-widest bg-stone-900 border-2 border-stone-950 text-stone-100 px-2.5 py-0.5 rounded font-black shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)]">
+                      {isFrench ? "SIMULATION VERROUILLÉE" : "SIMULATION LOCKED"}
+                    </span>
+                    <h4 className="text-xs font-black text-stone-950 uppercase mt-1">
+                      {isFrench ? "Plus de crédits de simulation miroir" : "Out of prepaid simulation credits"}
+                    </h4>
+                    <p className="text-[10px] text-stone-600 font-bold leading-relaxed mt-0.5">
+                      {isFrench 
+                        ? "Veuillez acheter un crédit à l'unité ou souscrire à l'abonnement Ultra Illimité pour démarrer votre simulation."
+                        : "To start your formal face-to-camera mock interview, please buy a single mirror credit or subscribe to Ultra Unlimited."}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  {/* Premium Pack Option (includes 1 Mirror Session) */}
+                  <div className="bg-white border-2 border-stone-950 p-3 rounded-xl flex flex-col justify-between text-left shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
+                    <div>
+                      <span className="text-[9px] font-black text-stone-950 block uppercase tracking-wider">{isFrench ? "Pack Premium" : "Premium Pack"}</span>
+                      <span className="text-[10px] font-bold text-stone-500 block mt-0.5 leading-relaxed">
+                        {isFrench ? "5 Sessions Audio + 1 Évaluation Miroir" : "5 Audio + 1 Mirror Evaluation"}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      id="simulator-buy-premium-btn"
+                      onClick={() => setSelectedProductForCheckout('pack_premium')}
+                      className="mt-2.5 w-full py-2 bg-[#18633F] hover:bg-[#1f7c50] text-white font-black text-[9px] uppercase tracking-wider rounded-lg border-2 border-stone-950 shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] active:translate-x-[0.5px] active:translate-y-[0.5px] active:shadow-[0.5px_0.5px_0px_0px_rgba(17,17,17,1)] cursor-pointer text-center"
+                    >
+                      {isFrench ? "Acheter • 7.99€" : "Buy • 7.99€"}
+                    </button>
+                  </div>
+
+                  {/* Top Up 1 Mirror Option */}
+                  <div className="bg-white border-2 border-stone-950 p-3 rounded-xl flex flex-col justify-between text-left shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
+                    <div>
+                      <span className="text-[9px] font-black text-stone-950 block uppercase tracking-wider">{isFrench ? "Recharge Miroir" : "Single Mirror Top-Up"}</span>
+                      <span className="text-[10px] font-bold text-stone-500 block mt-0.5 leading-relaxed">
+                        {isFrench ? "+1 Évaluation Miroir" : "+1 Mirror simulation"}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      id="simulator-buy-topup-btn"
+                      onClick={() => setSelectedProductForCheckout('topup_1_mirror')}
+                      className="mt-2.5 w-full py-2 bg-[#EDC154] hover:bg-[#ffdf7e] text-stone-950 font-black text-[9px] uppercase tracking-wider rounded-lg border-2 border-stone-950 shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] active:translate-x-[0.5px] active:translate-y-[0.5px] active:shadow-[0.5px_0.5px_0px_0px_rgba(17,17,17,1)] cursor-pointer text-center"
+                    >
+                      {isFrench ? "Acheter • 2.99€" : "Buy • 2.99€"}
+                    </button>
+                  </div>
+                </div>
+
+                {onNavigateTab && (
+                  <div className="text-center pt-2">
+                    <button
+                      type="button"
+                      onClick={() => onNavigateTab('purchase')}
+                      className="text-[10px] font-mono font-bold text-stone-600 hover:text-stone-900 underline cursor-pointer"
+                    >
+                      {isFrench ? "Voir toutes les offres de packs" : "View all available packages"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="pt-4 text-center">
+                <button
+                  onClick={handleInitiateInterview}
+                  className="px-8 py-4 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-mono font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg active:scale-95 cursor-pointer max-w-xs w-full"
+                  id="simulation-launch-btn"
+                >
+                  {currentProfile.language === 'English' ? "Initiate Job Interview" : "Démarrer la Simulation"}
+                </button>
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -1553,57 +1724,122 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
                 </div>
               </div>
 
-              {/* Visualized sound Wave state panel if speaking */}
-              <div className="cyber-card p-5 bg-slate-950/40 border border-slate-850 space-y-4 shadow flex flex-col items-center text-center relative overflow-hidden rounded-3xl">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.02)_0%,transparent_80%)] pointer-events-none" />
-                
-                <span className="font-mono text-[8px] tracking-widest font-extrabold text-violet-400 bg-violet-950/40 border border-violet-800/40 px-2.5 py-1 rounded">
-                  AUDIO INTERFACE WAVEFORM
-                </span>
-
-                <div className="flex justify-center items-center gap-1.5 h-14">
-                  {/* CSS powered speech synthesis feedback waveform */}
-                  {[...Array(9)].map((_, i) => {
-                    const amplitude = isPlayingVoice 
-                      ? Math.sin(i * 0.8) * 45 + 15 
+              {/* Minimal Recruiter Presence Orb (Phase 22.1) */}
+              <div className="cyber-card p-6 bg-slate-950/40 border border-slate-850 shadow-xl flex flex-col items-center text-center relative overflow-hidden rounded-3xl w-full">
+                {/* Radial glow background aligned with active state */}
+                <div className={`absolute -inset-10 opacity-30 blur-2xl transition-all duration-1000 pointer-events-none rounded-full ${
+                  isLoading 
+                    ? 'bg-amber-500/20' 
+                    : isPlayingVoice 
+                      ? 'bg-emerald-500/20' 
                       : isListening 
-                        ? Math.random() * 40 + 5 
-                        : 3;
-                    return (
-                      <span
-                        key={i}
-                        className={`w-1 rounded-full transition-all duration-150 ${
-                          isPlayingVoice 
-                            ? 'bg-violet-400' 
-                            : isListening 
-                              ? 'bg-red-400 animate-pulse' 
-                              : 'bg-slate-700'
-                        }`}
-                        style={{
-                          height: `${Math.max(4, amplitude)}px`,
-                        }}
-                      />
-                    );
-                  })}
+                        ? 'bg-cyan-500/20' 
+                        : 'bg-violet-500/10'
+                }`} />
+
+                {/* Recruiter Presence Ring & Orb */}
+                <div className="relative w-28 h-28 flex items-center justify-center mb-4">
+                  {/* Concentric glowing pulse rings */}
+                  <motion.div
+                    animate={isLoading ? { scale: [1, 1.15, 1], opacity: [0.3, 0.6, 0.3] } : 
+                             isPlayingVoice ? { scale: [1, 1.25, 0.95, 1.1, 1], opacity: [0.4, 0.8, 0.4] } :
+                             isListening ? { scale: [1, 1.1, 1], opacity: [0.4, 0.7, 0.4] } :
+                             { scale: [1, 1.02, 1], opacity: [0.2, 0.3, 0.2] }}
+                    transition={{ repeat: Infinity, duration: isLoading ? 2 : isPlayingVoice ? 1.2 : isListening ? 1.8 : 4, ease: "easeInOut" }}
+                    className={`absolute inset-0 rounded-full border transition-all duration-1000 ${
+                      isLoading 
+                        ? 'border-amber-500/30 bg-amber-500/5' 
+                        : isPlayingVoice 
+                          ? 'border-emerald-500/30 bg-emerald-500/5' 
+                          : isListening 
+                            ? 'border-cyan-500/30 bg-cyan-500/5' 
+                            : 'border-violet-500/10 bg-violet-500/2'
+                    }`}
+                  />
+                  
+                  <motion.div
+                    animate={isLoading ? { scale: [1, 1.08, 1] } : 
+                             isPlayingVoice ? { scale: [1, 1.18, 0.98, 1.08, 1] } :
+                             isListening ? { scale: [1, 1.05, 1] } :
+                             { scale: [1, 1.01, 1] }}
+                    transition={{ repeat: Infinity, duration: isLoading ? 1.5 : isPlayingVoice ? 1 : isListening ? 1.5 : 3, ease: "easeInOut" }}
+                    className={`absolute w-20 h-20 rounded-full border transition-all duration-1000 ${
+                      isLoading 
+                        ? 'border-amber-400/40 shadow-[0_0_20px_rgba(245,158,11,0.2)]' 
+                        : isPlayingVoice 
+                          ? 'border-emerald-400/40 shadow-[0_0_25px_rgba(16,185,129,0.25)]' 
+                          : isListening 
+                            ? 'border-cyan-400/40 shadow-[0_0_20px_rgba(6,182,212,0.2)]' 
+                            : 'border-violet-500/20 shadow-[0_0_10px_rgba(139,92,246,0.1)]'
+                    }`}
+                  />
+
+                  {/* The Core Glass Orb */}
+                  <div className={`w-14 h-14 rounded-full flex items-center justify-center relative z-10 backdrop-blur-md border shadow-lg transition-all duration-1000 ${
+                    isLoading 
+                      ? 'bg-amber-500/10 border-amber-400/50 text-amber-400' 
+                      : isPlayingVoice 
+                        ? 'bg-emerald-500/10 border-emerald-400/50 text-emerald-400' 
+                        : isListening 
+                          ? 'bg-cyan-500/10 border-cyan-400/50 text-cyan-400' 
+                          : 'bg-slate-900/40 border-slate-800 text-slate-500 opacity-60'
+                  }`}>
+                    {/* Icon based on state */}
+                    <AnimatePresence mode="wait">
+                      {isLoading ? (
+                        <motion.div key="thinking" initial={{ opacity: 0, rotate: -45 }} animate={{ opacity: 1, rotate: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+                          <Cpu className="w-5 h-5 animate-pulse" />
+                        </motion.div>
+                      ) : isPlayingVoice ? (
+                        <motion.div key="speaking" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+                          <Volume2 className="w-5 h-5" />
+                        </motion.div>
+                      ) : isListening ? (
+                        <motion.div key="listening" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+                          <Mic className="w-5 h-5" />
+                        </motion.div>
+                      ) : (
+                        <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+                          <Sparkles className="w-5 h-5" />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </div>
 
-                <div className="space-y-1">
-                  <h4 className="text-xs font-mono font-black uppercase tracking-widest text-white">
-                    {isPlayingVoice 
-                      ? (currentProfile.language === 'English' ? "Interviewer is Speaking" : "Le recruteur s'exprime")
-                      : isListening 
-                        ? (currentProfile.language === 'English' ? "Listening to Your Voice" : "Détection de votre voix")
-                        : (currentProfile.language === 'English' ? "Ready on Command" : "En attente")}
+                {/* Recruiter state labeling */}
+                <div className="space-y-1 text-center">
+                  <h4 className="text-xs font-mono font-black uppercase tracking-widest text-white flex items-center justify-center gap-1.5">
+                    {isLoading && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />}
+                    {isPlayingVoice && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                    {isListening && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />}
+                    {!isLoading && !isPlayingVoice && !isListening && <span className="w-1.5 h-1.5 rounded-full bg-slate-600" />}
+                    
+                    {isLoading 
+                      ? (currentProfile.language === 'English' ? "Recruiter is Thinking" : "Le recruteur réfléchit")
+                      : isPlayingVoice 
+                        ? (currentProfile.language === 'English' ? "Recruiter is Speaking" : "Le recruteur s'exprime")
+                        : isListening 
+                          ? (currentProfile.language === 'English' ? "Listening to Your Voice" : "Détection de votre voix")
+                          : (currentProfile.language === 'English' ? "Interviewer Waiting" : "En attente")}
                   </h4>
-                  <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
-                    {isPlayingVoice 
-                      ? (currentProfile.language === 'English' ? "The synthetic speech rendering conducts real-time professional phone screening." : "Le système synthétise la voix du recruteur en temps réel.")
-                      : isListening 
-                        ? (currentProfile.language === 'English' ? "Microphone is receiving your professional telemetry feed." : "Le micro enregistre et retranscrit vos réponses professionnelles.")
-                        : (currentProfile.language === 'English' ? "No active audio loops. Use controls to speak or listen dynamically." : "Aucune boucle audio active. Utilisez les commandes pour interagir.")}
+                  <p className="text-[10px] text-slate-400 max-w-xs mx-auto font-semibold leading-relaxed">
+                    {isLoading 
+                      ? (currentProfile.language === 'English' ? "Calibrating context-driven questions and active learning memory..." : "Calibrage des questions et traitement de la mémoire en cours...")
+                      : isPlayingVoice 
+                        ? (currentProfile.language === 'English' ? "The interviewer is sharing questions and feedback dynamically." : "Synthèse vocale adaptative en cours.")
+                        : isListening 
+                          ? (currentProfile.language === 'English' ? "Listening actively. Speak naturally. Your response is recorded." : "Parlez naturellement. Votre réponse est en cours de traitement.")
+                          : (currentProfile.language === 'English' ? "Press the mic below or click to start speaking when ready." : "Appuyez sur le micro ci-dessous pour parler.")}
                   </p>
                 </div>
               </div>
+
+              {/* SHANA Real-time Recruiter Intelligence Center (Phase 22.1) */}
+              <ShanaIntelligenceCenter 
+                conversationState={conversationState}
+                language={currentProfile.language}
+              />
 
               {/* Strict protocols list (No scoring / Coaching) */}
               <div className="cyber-card p-5 space-y-4 rounded-3xl bg-slate-950/40 border border-slate-850 text-left">
@@ -1669,6 +1905,55 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
                 Duration: {formatTime(seconds)}
               </p>
             </div>
+
+            {/* Phase 22.1 — Layer 5 Recruiter Decision Card */}
+            {conversationState?.recruiterDecision && (
+              <div className="bg-slate-900/40 border border-slate-800 p-6 rounded-3xl w-full max-w-lg text-left space-y-4">
+                <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-1.5">
+                    <Brain className="w-4 h-4 text-violet-400 animate-pulse" />
+                    <span className="text-[10px] font-mono uppercase text-slate-300 font-extrabold">
+                      {currentProfile.language === 'English' ? "RECRUITER HIRING DECISION" : "DÉCISION DE RECRUTEMENT SHANA"}
+                    </span>
+                  </div>
+                  <span className={`text-xs font-mono font-black uppercase px-2.5 py-0.5 rounded ${
+                    conversationState.recruiterDecision.recommendation === 'Strong Hire' || conversationState.recruiterDecision.recommendation === 'Hire'
+                      ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40'
+                      : conversationState.recruiterDecision.recommendation === 'No Hire'
+                        ? 'bg-red-950/60 text-red-400 border border-red-800/40'
+                        : 'bg-amber-950/60 text-amber-400 border border-amber-800/40'
+                  }`}>
+                    {conversationState.recruiterDecision.recommendation}
+                  </span>
+                </div>
+
+                <div className="space-y-3 text-xs leading-relaxed">
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-mono uppercase text-slate-500 font-extrabold block">
+                      {currentProfile.language === 'English' ? "CORE RECOMMENDATION JUSTIFICATION" : "JUSTIFICATION PRINCIPALE"}
+                    </span>
+                    <ul className="list-disc pl-4 space-y-1 text-slate-300 font-semibold">
+                      {conversationState.recruiterDecision.reasons.map((r: string, idx: number) => (
+                        <li key={idx} className="font-medium text-slate-250">{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {conversationState.recruiterDecision.weaknesses?.length > 0 && (
+                    <div className="space-y-1">
+                      <span className="text-[8px] font-mono uppercase text-slate-500 font-extrabold block">
+                        {currentProfile.language === 'English' ? "IDENTIFIED GAPS & DEVELOPMENT AREAS" : "LIMITES & AXES DE DÉVELOPPEMENT"}
+                      </span>
+                      <ul className="list-disc pl-4 space-y-1 text-slate-400">
+                        {conversationState.recruiterDecision.weaknesses.map((w: string, idx: number) => (
+                          <li key={idx} className="font-normal text-slate-400">{w}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* --- Phase 8: Production Insight Engine Display --- */}
             {isGeneratingInsight && (
@@ -1757,6 +2042,21 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Checkout Modal Overlay */}
+      {selectedProductForCheckout && (
+        <CheckoutModal
+          productId={selectedProductForCheckout}
+          userId={currentUser.id}
+          lang={isFrench ? 'FR' : 'EN'}
+          onClose={() => setSelectedProductForCheckout(null)}
+          onSuccess={(updated) => {
+            setMonetization(updated);
+            setSelectedProductForCheckout(null);
+            window.dispatchEvent(new Event('shana_progress_update'));
+          }}
+        />
+      )}
 
     </div>
   );

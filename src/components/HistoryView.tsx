@@ -94,7 +94,7 @@ export default function HistoryView({ history, lang, user }: HistoryViewProps) {
       bestScoreLabel: "Peak Performance",
       searchPlaceholder: "Search by date, directive or keyword...",
       allFilter: "All Formats",
-      assessFilter: "Mock Assessments",
+      assessFilter: "Production Evaluations",
       trainFilter: "Voice Drills",
       layoutGrid: "Grid Mode",
       layoutList: "List Mode"

@@ -308,8 +308,8 @@ export default function PaymentsCenter({ currentUser, lang = 'FR' }: PaymentsCen
             </h1>
             <p className="text-stone-400 text-xs max-w-xl leading-relaxed font-medium">
               {lang === 'FR' 
-                ? "Gérez l'infrastructure financière virtuelle. Configurez les abonnements, préparez la facturation multilocataire, et simulez des flux de paiement sécurisés." 
-                : "Control the virtual sandbox commerce engine. Manage invoices, handle simulated wallets, structure organizations billing, and process mock client transactions."}
+                ? "Gérez les registres commerciaux globaux, auditez les factures clients, gérez les soldes d'abonnements d'entreprise, structurez les règles de facturation et évaluez les reçus de transactions." 
+                : "Manage global commercial ledgers, audit customer invoices, handle corporate subscription balances, structure organization billing rules, and evaluate transaction receipts."}
             </p>
           </div>
 
@@ -342,7 +342,7 @@ export default function PaymentsCenter({ currentUser, lang = 'FR' }: PaymentsCen
           { id: 'invoices', label: lang === 'FR' ? 'Factures' : 'Invoices Ledger', icon: FileText },
           { id: 'transactions', label: lang === 'FR' ? 'Transactions' : 'Audit Trail', icon: Activity },
           { id: 'orgs', label: lang === 'FR' ? 'Comptes Clients' : 'Tenant Profiles', icon: Users },
-          { id: 'wallet', label: lang === 'FR' ? 'Crédits Portefeuille' : 'Wallet Sandbox', icon: DollarSign }
+          { id: 'wallet', label: lang === 'FR' ? 'Crédits Portefeuille' : 'Corporate Wallet', icon: DollarSign }
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -413,7 +413,7 @@ export default function PaymentsCenter({ currentUser, lang = 'FR' }: PaymentsCen
                 <div className="space-y-1">
                   <h3 className="font-sans font-bold text-2xl text-stone-900">{statsSuccessTxs}</h3>
                   <p className="text-[11px] text-[#6B7280] font-semibold">
-                    {lang === 'FR' ? "Débits simulés réussis" : "Successful sandbox charges"}
+                    {lang === 'FR' ? "Débits autorisés réussis" : "Successful authorized charges"}
                   </p>
                 </div>
               </div>
@@ -421,7 +421,7 @@ export default function PaymentsCenter({ currentUser, lang = 'FR' }: PaymentsCen
               <div className="bg-white border border-stone-200 rounded-3xl p-6 shadow-xs space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="font-mono text-[9px] uppercase tracking-wider text-stone-500 font-bold">
-                    {lang === 'FR' ? "ÉCHECS BANQUE" : "FAILED SANDBOX CHARGES"}
+                    {lang === 'FR' ? "ÉCHECS DE PAIEMENT" : "FAILED REVENUE CHARGES"}
                   </span>
                   <ShieldAlert className="w-4 h-4 text-rose-500" />
                 </div>
@@ -440,7 +440,7 @@ export default function PaymentsCenter({ currentUser, lang = 'FR' }: PaymentsCen
               <div className="space-y-1">
                 <h3 className="font-sans font-extrabold text-sm text-stone-950 flex items-center gap-2">
                   <Sliders className="w-4 h-4 text-violet-600" />
-                  {lang === 'FR' ? "Adaptateurs de Paiement Abstraits (Sandbox)" : "Abstract Checkout Payment Providers"}
+                  {lang === 'FR' ? "Passerelles de Paiement Intégrées" : "Enterprise Checkout Payment Providers"}
                 </h3>
                 <p className="text-[11px] text-[#6B7280] font-semibold">
                   {lang === 'FR' ? "Simulez différentes passerelles financières sans dépendance rigide à un fournisseur." : "Toggle active system gateways to model client experience for multiple checkout configurations."}
@@ -490,10 +490,10 @@ export default function PaymentsCenter({ currentUser, lang = 'FR' }: PaymentsCen
                 <div className="space-y-1">
                   <h4 className="font-sans font-bold text-sm text-[#111827] flex items-center gap-1.5">
                     <Sparkles className="w-4 h-4 text-yellow-500 animate-pulse" />
-                    {lang === 'FR' ? "Déclencher un Paiement Virtuel" : "Execute Sandbox Checkout Transaction"}
+                    {lang === 'FR' ? "Déclencher un Paiement" : "Execute Checkout Transaction"}
                   </h4>
                   <p className="text-[11px] text-[#6B7280] font-semibold">
-                    {lang === 'FR' ? "Simulez un encaissement direct pour vérifier les registres comptables." : "Simulate real-time debit or bank transfer payments to evaluate automated billing status triggers."}
+                    {lang === 'FR' ? "Simulez un encaissement direct pour vérifier les registres comptables." : "Process real-time debit or bank transfer payments to evaluate automated billing status triggers."}
                   </p>
                 </div>
 
@@ -550,7 +550,7 @@ export default function PaymentsCenter({ currentUser, lang = 'FR' }: PaymentsCen
                     className="w-full py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95 flex items-center justify-center gap-1.5"
                   >
                     <CreditCard className="w-4 h-4" />
-                    <span>{lang === 'FR' ? "Initier la Transaction" : "Authorize Sandbox Settlement"}</span>
+                    <span>{lang === 'FR' ? "Initier la Transaction" : "Authorize Settlement"}</span>
                   </button>
                 </form>
               </div>

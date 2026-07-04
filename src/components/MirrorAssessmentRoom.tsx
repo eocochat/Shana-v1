@@ -29,6 +29,8 @@ import { InterviewDirector } from '../lib/director';
 import { calculateIPS } from '../lib/ips';
 import { ShanaOrchestrator } from '../lib/orchestrator';
 import { LearningValidationLoop } from '../lib/learningLoop';
+import { RecruiterBrain } from '../lib/recruiter/recruiterBrain';
+import { CandidateBrain } from '../lib/candidate/candidateBrain';
 
 const SubtleWaveform = () => {
   const barVariants = {
@@ -549,9 +551,9 @@ export default function MirrorAssessmentRoom({
       if (hasSpokenThisStep) {
         if (!silenceTimeoutRef.current) {
           silenceTimeoutRef.current = setTimeout(() => {
-            console.log("[MirrorRoom] Silence detected for 3.5s after speech. Automatic transition to next step!");
+            console.log("[MirrorRoom] Silence-based Turn-Detection triggered. Submitting answer...");
             handleNextStep();
-          }, 3500);
+          }, 1500); // Enforced at 1.5s silence, matching VoiceTrainingFlow and TurnDetector exactly
         }
       }
     }
@@ -863,6 +865,27 @@ export default function MirrorAssessmentRoom({
     const logItem = `Phase: ${currentQuestion.label} | Question: ${currentQuestion.question} | Answer: ${currentResponse}`;
     setInterviewLogs(prev => [...prev, logItem]);
 
+    // Process candidate response in Shana Recruiter Brain and Candidate Intelligence
+    try {
+      RecruiterBrain.processCandidateResponse(
+        sessionIdRef.current,
+        currentQuestion?.question || '',
+        currentResponse,
+        assessmentStep + 1
+      );
+      
+      CandidateBrain.processInterviewAnswer(
+        user.id || 'usr_candidate',
+        currentQuestion?.question || '',
+        currentResponse,
+        currentQuestion?.type === 'technical',
+        currentQuestion?.challenge?.type === 'thirty_second_limit',
+        assessmentStep + 1
+      );
+    } catch (e) {
+      console.error('Error processing candidate response in Brain Engines:', e);
+    }
+
     // Event: answer_submitted
     ShanaEventTracker.logEvent(
       user.id || 'usr_candidate',
@@ -1034,6 +1057,12 @@ export default function MirrorAssessmentRoom({
       // Persistence
       const existingHistory = StorageService.getHistory(user.id) || [];
       StorageService.saveHistory(user.id, [sessionPayload, ...existingHistory]);
+
+      try {
+        CandidateBrain.finalizeSession(user.id || 'usr_candidate', aggregateScore);
+      } catch (err) {
+        console.error("Error finalising session in CandidateBrain:", err);
+      }
 
       // Commit After Metrics for the Learning Validation Loop
       try {

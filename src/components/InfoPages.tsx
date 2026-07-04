@@ -21,7 +21,12 @@ import {
   Mail,
   User,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Star,
+  Target,
+  TrendingUp,
+  Clock,
+  Activity
 } from 'lucide-react';
 import { useToast } from './Toast';
 import Footer from './Footer';
@@ -64,6 +69,7 @@ export default function InfoPages({
   // Blog coming soon newsletter state
   const [blogEmail, setBlogEmail] = useState('');
   const [blogSubscribed, setBlogSubscribed] = useState(false);
+  const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
 
   // Submissions simulator
   const handleContactSubmit = (e: React.FormEvent) => {
@@ -360,95 +366,522 @@ export default function InfoPages({
         {/* ========================================================== */}
         {page === 'blog' && (
           <div id="page-blog" className="space-y-12 animate-fade-in text-left">
-            <div className="space-y-3">
-              <span className="font-mono text-[10px] uppercase bg-purple-100 text-purple-800 tracking-widest font-extrabold px-2.5 py-1 rounded">
-                {isFR ? "PENSÉE ET RECHERCHE" : "ENGINEERING DIGESTS"}
-              </span>
-              <h1 className="text-3xl sm:text-4xl font-sans font-black tracking-tight text-[#1A2B3C]">
-                {isFR ? "Le Blog d'Ingénierie SHANA" : "SHANA Engineering Blog"}
-              </h1>
-              <p className="text-sm text-[#6B7280] font-medium leading-relaxed max-w-xl">
-                {isFR 
-                  ? "Recherche de pointe sur le charisme oratoire, l'alignement de carrière sous haute pression, et la psychologie des recruteurs."
-                  : "Insights and research on verbal charisma under fire, executive search protocols, and biometric speech alignment."}
-              </p>
-            </div>
-
-            {/* Simulated Blog grid structure */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-6 bg-white border border-[#E5E7EB] rounded-2xl space-y-3 opacity-90">
-                <span className="font-mono text-[9px] text-blue-600 font-extrabold tracking-widest block uppercase">RESEARCH // IN_DEVELOPMENT</span>
-                <h3 className="text-base font-extrabold text-[#1A2B3C]">
-                  {isFR ? "Éliminer les Tics de Parole en 90 Secondes" : "Purging Sentence Fillers Instantly"}
-                </h3>
-                <p className="text-xs text-[#6B7280] leading-relaxed">
-                  {isFR 
-                    ? "Comment la conscience de notre intervalle physique de silence permet d'éliminer définitivement les hésitations oratoires."
-                    : "Analyzing how structured pauses allow deep logical retrieval and systematically eliminate defensive repetitive filler phrases."}
-                </p>
-                <span className="text-[10px] font-bold text-[#1A2B3C] block pt-1">{isFR ? "Lire un extrait →" : "Read excerpt →"}</span>
-              </div>
-
-              <div className="p-6 bg-white border border-[#E5E7EB] rounded-2xl space-y-3 opacity-90">
-                <span className="font-mono text-[9px] text-emerald-600 font-extrabold tracking-widest block uppercase">LEADERSHIP // PILOT</span>
-                <h3 className="text-base font-extrabold text-[#1A2B3C]">
-                  {isFR ? "La Posture face au Regard Caméra" : "Gaze Calibration Under Severe stress"}
-                </h3>
-                <p className="text-xs text-[#6B7280] leading-relaxed">
-                  {isFR 
-                    ? "L'influence critique du point d'impact de votre regard sur l'objectif lors des visioconférences élites."
-                    : "Perfecting virtual focus metrics. Stabilizing vertical coordinates to display authority in final-round decisions."}
-                </p>
-                <span className="text-[10px] font-bold text-[#1A2B3C] block pt-1">{isFR ? "Lire un extrait →" : "Read excerpt →"}</span>
-              </div>
-            </div>
-
-            {/* Coming Soon state with newsletter registration */}
-            <div className="p-8 bg-white border border-[#E5E7EB] rounded-[32px] text-center space-y-6 relative overflow-hidden">
-              <div className="absolute top-0 right-0 bg-[#1A2B3C]/5 text-[#1A2B3C] font-mono text-[10px] font-bold uppercase tracking-widest px-4 py-1.5 rounded-bl-xl border-l border-b border-[#E5E7EB]">
-                {isFR ? "INDISPONIBLE ACTUELLEMENT" : "COMING SOON"}
-              </div>
-
-              <div className="max-w-md mx-auto space-y-3 pt-4">
-                <h3 className="text-base font-extrabold text-[#1A2B3C]">
-                  {isFR ? "S'abonner aux Futures parutions" : "Subscribe to Future Digests"}
-                </h3>
-                <p className="text-xs text-[#6B7280] leading-relaxed">
-                  {isFR 
-                    ? "Inscrivez-vous pour recevoir directement nos futures études sur l'éloquence professionnelle."
-                    : "No spam, no trackers. Receive highly summarized speech readiness briefs direct to your business inbox."}
-                </p>
-              </div>
-
-              {!blogSubscribed ? (
-                <form onSubmit={handleBlogSubscribe} className="max-w-md mx-auto flex flex-col sm:flex-row gap-2">
-                  <input 
-                    type="email"
-                    required
-                    value={blogEmail}
-                    onChange={(e) => setBlogEmail(e.target.value)}
-                    placeholder={isFR ? "votre.email@domaine.com" : "engineer@domain.com"}
-                    className="flex-1 bg-white border border-[#E5E7EB] px-4 py-2 text-xs rounded-xl outline-none focus:border-[#1A2B3C]"
-                  />
-                  <button 
-                    type="submit"
-                    className="px-5 py-2.5 bg-[#1A2B3C] text-white text-xs font-bold uppercase tracking-wider rounded-xl cursor-pointer hover:bg-[#2C3E50] transition-colors"
-                  >
-                    {isFR ? "S'abonner" : "Subscribe"}
-                  </button>
-                </form>
-              ) : (
-                <div className="max-w-md mx-auto p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1 text-center">
-                  <CheckCircle className="w-5 h-5 text-emerald-600 mx-auto" />
-                  <p className="text-xs font-bold text-emerald-800">
-                    {isFR ? "Enregistrement Terminé" : "Secure Logging Verified"}
-                  </p>
-                  <p className="text-[10px] text-emerald-600">
-                    {isFR ? "Votre email a été consigné avec succès." : "You are cataloged for upcoming publication notifications."}
+            {!selectedArticleId ? (
+              <>
+                <div className="space-y-3">
+                  <span className="font-mono text-[10px] uppercase bg-amber-150 text-stone-900 border border-stone-950 font-black tracking-widest px-2.5 py-1 rounded shadow-[1px_1px_0px_0px_rgba(17,17,17,1)] inline-block">
+                    {isFR ? "MÉTHODOLOGIE ET RECHERCHE" : "METHODOLOGY & RESEARCH"}
+                  </span>
+                  <h1 className="text-3xl sm:text-4xl font-sans font-black tracking-tight text-stone-950 uppercase">
+                    {isFR ? "Le Blog de Préparation SHANA" : "SHANA Preparation Blog"}
+                  </h1>
+                  <p className="text-sm text-stone-700 font-bold leading-relaxed max-w-xl">
+                    {isFR 
+                      ? "Guides illustrés et recherches de pointe sur la structure STAR, les scores oratoires, et le fonctionnement de l'IA."
+                      : "Illustrated guides and advanced research on the STAR structure, oratorical scores, and AI engine mechanics."}
                   </p>
                 </div>
-              )}
-            </div>
+
+                {/* Illustrated Blog Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  
+                  {/* Article 1: How it Works */}
+                  <div 
+                    id="blog-card-how-it-works"
+                    onClick={() => { setSelectedArticleId('how-it-works'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    className="group bg-white border-2 border-stone-950 rounded-2xl p-6 shadow-[4px_4px_0px_0px_rgba(17,17,17,1)] hover:shadow-[6px_6px_0px_0px_rgba(17,17,17,1)] hover:-translate-y-1 transition-all cursor-pointer flex flex-col justify-between space-y-6"
+                  >
+                    <div className="space-y-4">
+                      {/* Illustrative mini-graphic */}
+                      <div className="h-32 bg-stone-50 border-2 border-stone-950 rounded-xl relative overflow-hidden flex items-center justify-center p-4">
+                        <div className="absolute inset-0 bg-[radial-gradient(#171717_1px,transparent_1px)] [background-size:16px_16px] opacity-10"></div>
+                        <div className="flex items-center gap-3 z-10">
+                          <div className="w-10 h-10 bg-[#EDC154] border border-stone-950 rounded-lg flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
+                            <Mic className="w-5 h-5 text-stone-950" />
+                          </div>
+                          <div className="text-stone-300">➔</div>
+                          <div className="w-10 h-10 bg-stone-950 border border-stone-950 rounded-lg flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)]">
+                            <Cpu className="w-5 h-5 text-[#EDC154]" />
+                          </div>
+                          <div className="text-stone-300">➔</div>
+                          <div className="w-10 h-10 bg-stone-100 border border-stone-950 rounded-lg flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
+                            <BarChart3 className="w-5 h-5 text-stone-950" />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <span className="font-mono text-[9px] text-[#18633F] font-black tracking-widest block uppercase">ENGINEERING // GUIDE</span>
+                      <h3 className="text-lg font-black text-stone-950 uppercase tracking-tight group-hover:text-stone-800 transition-colors">
+                        {isFR ? "Comment Fonctionne SHANA : L'IA Oratoire" : "How SHANA Works: The Vocal AI Engine"}
+                      </h3>
+                      <p className="text-xs text-stone-600 font-bold leading-relaxed">
+                        {isFR 
+                          ? "Découvrez les coulisses de l'analyse acoustique de votre voix, de la détection de latence, et de l'adaptation du jury d'IA."
+                          : "Explore behind the scenes of real-time acoustic signal parsing, latencies, and how our interactive AI models adapt to your background."}
+                      </p>
+                    </div>
+                    <span className="text-xs font-black text-stone-950 uppercase tracking-wider block pt-3 border-t border-stone-100 group-hover:underline">
+                      {isFR ? "Lire l'article complet →" : "Read full article →"}
+                    </span>
+                  </div>
+
+                  {/* Article 2: Scores & Objectives */}
+                  <div 
+                    id="blog-card-scores-objectives"
+                    onClick={() => { setSelectedArticleId('scores-objectives'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    className="group bg-white border-2 border-stone-950 rounded-2xl p-6 shadow-[4px_4px_0px_0px_rgba(17,17,17,1)] hover:shadow-[6px_6px_0px_0px_rgba(17,17,17,1)] hover:-translate-y-1 transition-all cursor-pointer flex flex-col justify-between space-y-6"
+                  >
+                    <div className="space-y-4">
+                      {/* Illustrative mini-graphic */}
+                      <div className="h-32 bg-stone-50 border-2 border-stone-950 rounded-xl relative overflow-hidden flex items-center justify-center p-4">
+                        <div className="absolute inset-0 bg-[radial-gradient(#171717_1px,transparent_1px)] [background-size:16px_16px] opacity-10"></div>
+                        <div className="w-full space-y-2 z-10 px-2">
+                          <div className="flex justify-between items-center text-[10px] font-mono font-black text-stone-700">
+                            <span>ELOCUTION RATE</span>
+                            <span>145 WPM (IDEAL)</span>
+                          </div>
+                          <div className="w-full bg-stone-200 h-3.5 rounded-full border border-stone-950 p-0.5">
+                            <div className="bg-[#18633F] h-full rounded-full" style={{ width: '85%' }}></div>
+                          </div>
+                          <div className="flex justify-between items-center text-[9px] font-mono text-stone-500 font-bold">
+                            <span>SLOW</span>
+                            <span>TARGET RANGE</span>
+                            <span>FAST</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className="font-mono text-[9px] text-[#A14B15] font-black tracking-widest block uppercase">METRICS // INTERACTIVE</span>
+                      <h3 className="text-lg font-black text-stone-950 uppercase tracking-tight group-hover:text-stone-800 transition-colors">
+                        {isFR ? "Décoder les Scores & Objectifs SHANA" : "Deciphering Your Scores & Objectives"}
+                      </h3>
+                      <p className="text-xs text-stone-600 font-bold leading-relaxed">
+                        {isFR 
+                          ? "Comprenez comment atteindre le rythme idéal d'élocution (130-150 mots/min), limiter vos tics de parole, et stabiliser votre regard caméra."
+                          : "Learn how to hit the perfect speech rate (130-150 WPM), reduce filler words, and satisfy eye gaze constraints."}
+                      </p>
+                    </div>
+                    <span className="text-xs font-black text-stone-950 uppercase tracking-wider block pt-3 border-t border-stone-100 group-hover:underline">
+                      {isFR ? "Lire l'article complet →" : "Read full article →"}
+                    </span>
+                  </div>
+
+                  {/* Article 3: Star System */}
+                  <div 
+                    id="blog-card-star-system"
+                    onClick={() => { setSelectedArticleId('star-system'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    className="group bg-white border-2 border-stone-950 rounded-2xl p-6 shadow-[4px_4px_0px_0px_rgba(17,17,17,1)] hover:shadow-[6px_6px_0px_0px_rgba(17,17,17,1)] hover:-translate-y-1 transition-all cursor-pointer flex flex-col justify-between space-y-6"
+                  >
+                    <div className="space-y-4">
+                      {/* Illustrative mini-graphic */}
+                      <div className="h-32 bg-stone-50 border-2 border-stone-950 rounded-xl relative overflow-hidden flex items-center justify-center p-4">
+                        <div className="absolute inset-0 bg-[radial-gradient(#171717_1px,transparent_1px)] [background-size:16px_16px] opacity-10"></div>
+                        <div className="flex gap-1.5 z-10">
+                          <Star className="w-8 h-8 text-[#EDC154] fill-[#EDC154] filter drop-shadow-[2px_2px_0px_rgba(17,17,17,1)]" />
+                          <Star className="w-8 h-8 text-[#EDC154] fill-[#EDC154] filter drop-shadow-[2px_2px_0px_rgba(17,17,17,1)]" />
+                          <Star className="w-8 h-8 text-[#EDC154] fill-[#EDC154] filter drop-shadow-[2px_2px_0px_rgba(17,17,17,1)]" />
+                          <Star className="w-8 h-8 text-[#EDC154] fill-[#EDC154] filter drop-shadow-[2px_2px_0px_rgba(17,17,17,1)]" />
+                          <Star className="w-8 h-8 text-stone-300 filter drop-shadow-[2px_2px_0px_rgba(17,17,17,1)]" />
+                        </div>
+                      </div>
+
+                      <span className="font-mono text-[9px] text-[#2563EB] font-black tracking-widest block uppercase">STRUCTURE // METHODOLOGY</span>
+                      <h3 className="text-lg font-black text-stone-950 uppercase tracking-tight group-hover:text-stone-800 transition-colors">
+                        {isFR ? "Maîtriser la Méthode STAR en Entretien" : "Mastering the STAR Structure & Ratings"}
+                      </h3>
+                      <p className="text-xs text-stone-600 font-bold leading-relaxed">
+                        {isFR 
+                          ? "Structurez vos réponses avec rigueur (Situation, Tâche, Action, Résultat) pour décrocher les 5 Étoiles oratoires."
+                          : "Build flawless behavioral answers (Situation, Task, Action, Result) and achieve prestigious 5-Star feedback."}
+                      </p>
+                    </div>
+                    <span className="text-xs font-black text-stone-950 uppercase tracking-wider block pt-3 border-t border-stone-100 group-hover:underline">
+                      {isFR ? "Lire l'article complet →" : "Read full article →"}
+                    </span>
+                  </div>
+
+                </div>
+
+                {/* Newsletter Sign up */}
+                <div id="blog-newsletter-box" className="p-8 bg-stone-950 text-white rounded-[32px] text-center space-y-6 relative overflow-hidden border-4 border-stone-950 shadow-[4px_4px_0px_0px_rgba(237,193,84,1)]">
+                  <div className="absolute inset-0 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:24px_24px] opacity-[0.03]"></div>
+                  
+                  <div className="max-w-md mx-auto space-y-3 pt-4 z-10 relative">
+                    <span className="font-mono text-[9px] font-black uppercase text-[#EDC154] tracking-widest bg-stone-900 border border-stone-800 px-3 py-1 rounded">
+                      {isFR ? "LETTRE TECHNIQUE" : "RESEARCH BULLETINS"}
+                    </span>
+                    <h3 className="text-xl font-sans font-black uppercase tracking-tight">
+                      {isFR ? "S'abonner aux Publications SHANA" : "Subscribe to SHANA Digests"}
+                    </h3>
+                    <p className="text-xs text-stone-300 font-semibold leading-relaxed">
+                      {isFR 
+                        ? "Recevez régulièrement des analyses oratoires, d'élocution et de posture directement dans votre boîte mail."
+                        : "Receive high-fidelity digests covering speech processing, cognitive poise, and interview strategy."}
+                    </p>
+                  </div>
+
+                  <div className="z-10 relative">
+                    {!blogSubscribed ? (
+                      <form onSubmit={handleBlogSubscribe} className="max-w-md mx-auto flex flex-col sm:flex-row gap-2">
+                        <input 
+                          type="email"
+                          required
+                          value={blogEmail}
+                          onChange={(e) => setBlogEmail(e.target.value)}
+                          placeholder={isFR ? "votre.email@domaine.com" : "candidate@domain.com"}
+                          className="flex-1 bg-stone-900 border-2 border-stone-800 px-4 py-2.5 text-xs rounded-xl outline-none focus:border-[#EDC154] text-white font-bold"
+                        />
+                        <button 
+                          type="submit"
+                          className="px-6 py-2.5 bg-[#EDC154] text-stone-950 text-xs font-black uppercase tracking-wider rounded-xl cursor-pointer hover:bg-[#ffe39c] transition-colors border-2 border-stone-950"
+                        >
+                          {isFR ? "S'abonner" : "Subscribe"}
+                        </button>
+                      </form>
+                    ) : (
+                      <div className="max-w-md mx-auto p-4 bg-[#18633F] border-2 border-stone-950 rounded-xl space-y-1 text-center shadow-[2px_2px_0px_0px_rgba(255,255,255,0.1)]">
+                        <CheckCircle className="w-5 h-5 text-white mx-auto" />
+                        <p className="text-xs font-black text-white uppercase">
+                          {isFR ? "Inscription validée" : "Secure Logged Verified"}
+                        </p>
+                        <p className="text-[10px] text-emerald-100 font-bold">
+                          {isFR ? "Votre email a été enregistré avec succès." : "You are cataloged for upcoming publication notifications."}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div id="blog-article-viewer" className="space-y-8 animate-fade-in text-left">
+                {/* Back button */}
+                <button 
+                  id="btn-back-to-blog"
+                  onClick={() => { setSelectedArticleId(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-stone-50 border-2 border-stone-950 rounded-xl font-black text-xs uppercase tracking-wider shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4 shrink-0" />
+                  <span>{isFR ? "Retour au blog" : "Back to blog"}</span>
+                </button>
+
+                {/* ========================================================== */}
+                {/* ARTICLE 1 DETAILED: HOW IT WORKS                           */}
+                {/* ========================================================== */}
+                {selectedArticleId === 'how-it-works' && (
+                  <article className="max-w-4xl bg-white border-2 border-stone-950 rounded-3xl p-6 sm:p-10 shadow-[6px_6px_0px_0px_rgba(17,17,17,1)] space-y-8">
+                    <div className="space-y-4">
+                      <span className="font-mono text-xs font-black uppercase text-[#18633F] tracking-wider bg-emerald-50 border border-emerald-300 px-3 py-1 rounded-md inline-block">
+                        {isFR ? "GUIDE ARCHITECTURE TECHNIQUE" : "TECHNICAL ARCHITECTURE DIGEST"}
+                      </span>
+                      <h2 className="text-2xl sm:text-3.5xl font-sans font-black text-stone-950 uppercase tracking-tight leading-tight">
+                        {isFR ? "L'IA Oratoire en Action : Comment Vos Entraînements Sont Évalués" : "The Spoken AI Engine: How Your Training is Audited"}
+                      </h2>
+                      <div className="flex items-center gap-4 text-xs font-bold text-stone-500 uppercase tracking-wide">
+                        <span>{isFR ? "Par l'Équipe Ingénierie SHANA" : "By SHANA Engineering"}</span>
+                        <span>•</span>
+                        <span>{isFR ? "Lecture : 6 min" : "Read Time: 6 min"}</span>
+                      </div>
+                    </div>
+
+                    {/* ILLUSTRATION: The Real-time Spoken Analysis Pipeline */}
+                    <div className="bg-stone-50 border-2 border-stone-950 rounded-2xl p-6 relative overflow-hidden">
+                      <div className="absolute inset-0 bg-[radial-gradient(#171717_1px,transparent_1px)] [background-size:16px_16px] opacity-5"></div>
+                      <h4 className="font-mono text-[10px] font-black uppercase tracking-wider text-stone-700 text-center mb-6">
+                        {isFR ? "PIPELINE D'ANALYSE ACOUSTIQUE ET CHRONOMÉTRIQUE SHANA" : "SHANA REAL-TIME ACOUSTIC & LATENCY PIPELINE"}
+                      </h4>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 relative z-10">
+                        {/* Step 1 */}
+                        <div className="bg-white p-4 rounded-xl border border-stone-300 shadow-sm text-center space-y-2">
+                          <span className="text-xl">🎙️</span>
+                          <div className="font-mono text-[9px] font-black text-[#18633F] bg-emerald-50 rounded px-1.5 py-0.5 inline-block">STEP 01</div>
+                          <h5 className="font-sans font-black text-xs text-stone-950 uppercase">{isFR ? "FLUX AUDIO" : "AUDIO STREAM"}</h5>
+                          <p className="text-[10px] text-stone-600 font-bold">{isFR ? "Captation par le navigateur à 44.1kHz." : "Browser-level capture at 44.1kHz standard."}</p>
+                        </div>
+                        
+                        {/* Step 2 */}
+                        <div className="bg-white p-4 rounded-xl border border-stone-300 shadow-sm text-center space-y-2">
+                          <span className="text-xl">⏱️</span>
+                          <div className="font-mono text-[9px] font-black text-[#A14B15] bg-amber-50 rounded px-1.5 py-0.5 inline-block">STEP 02</div>
+                          <h5 className="font-sans font-black text-xs text-stone-950 uppercase">{isFR ? "CHRONOMÉTRIE" : "SPEECH CADENCE"}</h5>
+                          <p className="text-[10px] text-stone-600 font-bold">{isFR ? "Calcul des silences, hésitations, tics (euh)." : "Parsing pause ratios, filler gaps, and cadence."}</p>
+                        </div>
+
+                        {/* Step 3 */}
+                        <div className="bg-white p-4 rounded-xl border border-stone-300 shadow-sm text-center space-y-2">
+                          <span className="text-xl">🤖</span>
+                          <div className="font-mono text-[9px] font-black text-[#2563EB] bg-blue-50 rounded px-1.5 py-0.5 inline-block">STEP 03</div>
+                          <h5 className="font-sans font-black text-xs text-stone-950 uppercase">{isFR ? "IA SÉMANTIQUE" : "SEMANTIC AI"}</h5>
+                          <p className="text-[10px] text-stone-600 font-bold">{isFR ? "Analyse sémantique OpenAI (Structure STAR)." : "OpenAI checks structural adherence & STAR criteria."}</p>
+                        </div>
+
+                        {/* Step 4 */}
+                        <div className="bg-white p-4 rounded-xl border border-stone-300 shadow-sm text-center space-y-2">
+                          <span className="text-xl">📊</span>
+                          <div className="font-mono text-[9px] font-black text-[#1A2B3C] bg-stone-100 rounded px-1.5 py-0.5 inline-block">STEP 04</div>
+                          <h5 className="font-sans font-black text-xs text-stone-950 uppercase">{isFR ? "DIAGNOSTIC" : "DIAGNOSTIC"}</h5>
+                          <p className="text-[10px] text-stone-600 font-bold">{isFR ? "Génération des scores et conseils d'élocution." : "Spitting out structural scores and action tips."}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6 text-sm text-stone-800 leading-relaxed font-bold">
+                      <h3 className="font-sans font-black text-lg text-stone-950 uppercase border-b border-stone-200 pb-2">
+                        {isFR ? "1. L'Analyse Acoustique Locale et Distante" : "1. Local and Distant Acoustic Parsing"}
+                      </h3>
+                      <p>
+                        {isFR 
+                          ? "Lorsque vous appuyez sur 'Démarrer l'enregistrement' dans les simulateurs SHANA, une double analyse se déclenche :"
+                          : "When you press 'Start Recording' in SHANA's simulators, a dual analysis workflow is initialized:"}
+                      </p>
+                      <ul className="list-disc pl-5 space-y-2.5">
+                        <li>
+                          <strong>{isFR ? "Analyse acoustique locale :" : "Local Acoustic Parsing:"}</strong> {isFR 
+                            ? "Votre navigateur utilise l'API Web Audio pour mesurer l'amplitude du signal micro. Cela permet d'extraire la durée totale de parole, la longueur de vos silences et de repérer instantanément la régularité de vos pauses physiques."
+                            : "Your browser uses the Web Audio API to measure raw signal amplitude. This tracks active talking time versus silent gaps, assessing the regularity of your breathing intervals."}
+                        </li>
+                        <li>
+                          <strong>{isFR ? "Analyse sémantique distante :" : "Semantic AI Analysis:"}</strong> {isFR 
+                            ? "Une fois l'enregistrement converti, notre modèle d'IA OpenAI analyse le contenu de votre discours. Contrairement à une simple transcription, le modèle évalue la pertinence de votre argumentation par rapport au contexte professionnel de votre CV et à la dureté de la question posée."
+                            : "Once recorded, our semantic engine powered by OpenAI processes your argument. Instead of just transcribing words, it reviews contextual alignment based on your CV profile and handles real-time recruiter scrutiny."}
+                        </li>
+                      </ul>
+
+                      <h3 className="font-sans font-black text-lg text-stone-950 uppercase border-b border-stone-200 pb-2 pt-4">
+                        {isFR ? "2. Objectif Technique : Éliminer la Latence Cognitive" : "2. Technical Goal: Eradicating Cognitive Latency"}
+                      </h3>
+                      <p>
+                        {isFR 
+                          ? "Le secret des orateurs brillants ne réside pas dans la rapidité à répondre, mais dans le contrôle du silence. L'IA de SHANA mesure précisément ce que nous appelons la 'Latence Initiale' — le temps écoulé entre la fin de la question et votre premier mot."
+                          : "The key to commanding eloquence is not rapid-fire speaking, but structured silent composure. SHANA measures what we term 'Initial Cognitive Latency' — the delay between the recruiter finishing their sentence and your first vocalized syllable."}
+                      </p>
+                      <div className="p-4 bg-amber-50 rounded-xl border border-amber-300 text-amber-900 text-xs space-y-1">
+                        <span className="font-mono font-black uppercase block tracking-wider">💡 {isFR ? "ASTUCE DE COACHING" : "COACHING BLUEPRINT"}</span>
+                        <p>
+                          {isFR 
+                            ? "Une latence de 1,5 à 2,5 secondes est idéale. Elle montre au recruteur que vous réfléchissez avec calme, plutôt que de réciter une réponse pré-enregistrée."
+                            : "A natural pause of 1.5 to 2.5 seconds is perfect. It displays calm critical thinking, showing the recruiter you are processing instead of just reciting memorized paragraphs."}
+                        </p>
+                      </div>
+
+                      <h3 className="font-sans font-black text-lg text-stone-950 uppercase border-b border-stone-200 pb-2 pt-4">
+                        {isFR ? "3. L'Évaluation Miroir (Mirror Camera Specs)" : "3. Gaze Poise in Mirror Camera Sessions"}
+                      </h3>
+                      <p>
+                        {isFR 
+                          ? "Pour les sessions Premium, l'analyse visuelle s'ajoute au son. SHANA n'enregistre jamais votre flux vidéo sur un serveur cloud : la détection est 100% locale pour préserver votre vie privée. L'algorithme suit votre tête et vos yeux par rapport à l'objectif de votre webcam."
+                          : "During premium screen test configurations, physical metrics are fused with audio tracking. SHANA never streams or records your webcam feed remote-side: frame extraction is 100% client-local. The visual algorithm computes head stability and gaze vectors in relation to your viewport lens."}
+                      </p>
+                    </div>
+                  </article>
+                )}
+
+                {/* ========================================================== */}
+                {/* ARTICLE 2 DETAILED: SCORES & OBJECTIVES                     */}
+                {/* ========================================================== */}
+                {selectedArticleId === 'scores-objectives' && (
+                  <article className="max-w-4xl bg-white border-2 border-stone-950 rounded-3xl p-6 sm:p-10 shadow-[6px_6px_0px_0px_rgba(17,17,17,1)] space-y-8">
+                    <div className="space-y-4">
+                      <span className="font-mono text-xs font-black uppercase text-[#A14B15] tracking-wider bg-amber-50 border border-amber-300 px-3 py-1 rounded-md inline-block">
+                        {isFR ? "GRILLE D'ÉVALUATION ET SCORE" : "EVALUATION GRIDS & BENCHMARKS"}
+                      </span>
+                      <h2 className="text-2xl sm:text-3.5xl font-sans font-black text-stone-950 uppercase tracking-tight leading-tight">
+                        {isFR ? "Atteindre 100/100 : Comprendre vos Scores et Objectifs Oratoires" : "Reaching 100/100: Mastering Your Speaking Benchmarks"}
+                      </h2>
+                      <div className="flex items-center gap-4 text-xs font-bold text-stone-500 uppercase tracking-wide">
+                        <span>{isFR ? "Par l'Équipe Pédagogique SHANA" : "By SHANA Coaching"}</span>
+                        <span>•</span>
+                        <span>{isFR ? "Lecture : 5 min" : "Read Time: 5 min"}</span>
+                      </div>
+                    </div>
+
+                    {/* ILLUSTRATION: The Performance Scorecard Blueprint */}
+                    <div className="bg-stone-50 border-2 border-stone-950 rounded-2xl p-6">
+                      <h4 className="font-mono text-[10px] font-black uppercase tracking-wider text-stone-700 text-center mb-6">
+                        {isFR ? "VISUALISATION DES PRINCIPAUX AXES DE PERFORMANCE ORATOIRE" : "SHANA KEY SPEECH STABILITY BENCHMARKS"}
+                      </h4>
+
+                      <div className="space-y-4 max-w-xl mx-auto font-mono text-xs text-stone-950">
+                        {/* Metric 1 */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between font-black">
+                            <span>1. CADENCE D'ÉLOCUTION (SPEECH PACE)</span>
+                            <span className="text-[#18633F]">130 - 150 WPM</span>
+                          </div>
+                          <div className="h-6 bg-stone-200 border-2 border-stone-950 rounded-md relative flex items-center">
+                            <div className="absolute left-[35%] right-[35%] bg-[#18633F]/20 h-full border-l border-r border-dashed border-stone-950 flex items-center justify-center text-[8px] font-black">EXCELLENT ZONE</div>
+                            <div className="bg-[#18633F] h-full" style={{ width: '45%' }}></div>
+                            <span className="absolute right-4 font-black text-[9px] z-10">142 WPM</span>
+                          </div>
+                        </div>
+
+                        {/* Metric 2 */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between font-black">
+                            <span>2. TICS DE PAROLE (HEADING HESITATIONS)</span>
+                            <span className="text-[#18633F]">&lt; 2 / MIN</span>
+                          </div>
+                          <div className="h-6 bg-stone-200 border-2 border-stone-950 rounded-md relative flex items-center">
+                            <div className="bg-[#A14B15] h-full" style={{ width: '15%' }}></div>
+                            <span className="absolute right-4 font-black text-[9px] z-10">1 / MIN</span>
+                          </div>
+                        </div>
+
+                        {/* Metric 3 */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between font-black">
+                            <span>3. ALIGNEMENT REGARD (GAZE COORDINATION)</span>
+                            <span className="text-[#18633F]">&gt; 80%</span>
+                          </div>
+                          <div className="h-6 bg-stone-200 border-2 border-stone-950 rounded-md relative flex items-center">
+                            <div className="bg-[#2563EB] h-full" style={{ width: '88%' }}></div>
+                            <span className="absolute right-4 font-black text-[9px] z-10">88% (STABLE)</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6 text-sm text-stone-800 leading-relaxed font-bold">
+                      <h3 className="font-sans font-black text-lg text-stone-950 uppercase border-b border-stone-200 pb-2">
+                        {isFR ? "1. La Vitesse d'Élocution Idéale (WPM)" : "1. The Ideal Speech Pace (Words Per Minute)"}
+                      </h3>
+                      <p>
+                        {isFR
+                          ? "Le rythme de parole est mesuré en mots par minute (Words Per Minute ou WPM). Si vous parlez trop vite (plus de 160 WPM), vous donnez une impression d'anxiété. Si vous parlez trop lentement (moins de 110 WPM), le jury se déconcentre."
+                          : "Speech pacing is measured in Words Per Minute (WPM). Speaking too quickly (above 160 WPM) signals performance anxiety. Speaking too slowly (under 110 WPM) risks losing executive focus."}
+                      </p>
+                      <ul className="list-disc pl-5 space-y-1">
+                        <li><strong>{isFR ? "Zone d'Excellence :" : "The Sweet Spot:"}</strong> 130 - 150 WPM.</li>
+                        <li><strong>{isFR ? "Conseil :" : "Coaching Cue:"}</strong> {isFR ? "Imaginez que vous expliquez un concept à un confrère de confiance. Cela détend les cordes vocales et stabilise le souffle." : "Picture yourself explaining a design pattern to an admired peer. This relaxes vocal tension and stabilizes breath support."}</li>
+                      </ul>
+
+                      <h3 className="font-sans font-black text-lg text-stone-950 uppercase border-b border-stone-200 pb-2 pt-4">
+                        {isFR ? "2. Élimination des Hésitations (Filler Counter)" : "2. Controlling Speech Hesitations (Filler Words)"}
+                      </h3>
+                      <p>
+                        {isFR
+                          ? "Les tics vocaux comme 'euh', 'du coup', 'voilà' agissent comme des bruits parasites qui affaiblissent l'autorité de votre discours. SHANA utilise un compteur phonétique pour repérer ces répétitions."
+                          : "Filler sounds ('uhm', 'like', 'actually') act as acoustic pollution, stripping authority from your delivery. SHANA's detector isolates these phonetic occurrences."}
+                      </p>
+                      <p>
+                        {isFR
+                          ? "L'objectif d'excellence est d'avoir moins de 2 tics par minute. Pour y parvenir, entraînez-vous à remplacer vos hésitations orales par des silences physiques de transition."
+                          : "To score in the green zone, aim for fewer than 2 fillers per minute. Replacing filler sounds with clean, deliberate physical pauses adds immediate dramatic weight and poise."}
+                      </p>
+
+                      <h3 className="font-sans font-black text-lg text-stone-950 uppercase border-b border-stone-200 pb-2 pt-4">
+                        {isFR ? "3. La Stabilité du Regard (Gaze Target)" : "3. Visual Poise & Gaze Coordinates"}
+                      </h3>
+                      <p>
+                        {isFR
+                          ? "En visioconférence, l'illusion du contact visuel dépend exclusivement du fait de fixer la caméra et non l'écran. Notre algorithme mesure le point d'impact de votre regard. Pour obtenir un score optimal de plus de 80%, évitez de lire vos notes ou de regarder le sol pendant que vous argumentez."
+                          : "In virtual recruiting, the illusion of authentic eye contact relies entirely on focusing directly at your webcam lens, not the video viewport. SHANA's spatial tracking evaluates gaze coordinate variance. To score above 80%, stabilize your head position and avoid looking down at notes."}
+                      </p>
+                    </div>
+                  </article>
+                )}
+
+                {/* ========================================================== */}
+                {/* ARTICLE 3 DETAILED: STAR SYSTEM                            */}
+                {/* ========================================================== */}
+                {selectedArticleId === 'star-system' && (
+                  <article className="max-w-4xl bg-white border-2 border-stone-950 rounded-3xl p-6 sm:p-10 shadow-[6px_6px_0px_0px_rgba(17,17,17,1)] space-y-8">
+                    <div className="space-y-4">
+                      <span className="font-mono text-xs font-black uppercase text-[#2563EB] tracking-wider bg-blue-50 border border-blue-300 px-3 py-1 rounded-md inline-block">
+                        {isFR ? "MÉTHODE DE RÉPONSE ÉLITE" : "EXECUTIVE RESPONSE FRAMEWORK"}
+                      </span>
+                      <h2 className="text-2xl sm:text-3.5xl font-sans font-black text-stone-950 uppercase tracking-tight leading-tight">
+                        {isFR ? "La Clé des 5 Étoiles : Structurer Vos Réponses avec la Méthode STAR" : "The 5-Star Formula: Mastering Structured Answers with STAR"}
+                      </h2>
+                      <div className="flex items-center gap-4 text-xs font-bold text-stone-500 uppercase tracking-wide">
+                        <span>{isFR ? "Par l'Équipe d'Examen SHANA" : "By SHANA Board of Examiners"}</span>
+                        <span>•</span>
+                        <span>{isFR ? "Lecture : 7 min" : "Read Time: 7 min"}</span>
+                      </div>
+                    </div>
+
+                    {/* ILLUSTRATION: STAR method flowchart */}
+                    <div className="bg-stone-50 border-2 border-stone-950 rounded-2xl p-6">
+                      <h4 className="font-mono text-[10px] font-black uppercase tracking-wider text-stone-700 text-center mb-6">
+                        {isFR ? "RÉPARTITION RECOMMANDÉE DU TEMPS DE RÉPONSE (120 SECONDES CIBLE)" : "RECOMMENDED TIME ALLOCATION FOR STAR ANSWERS (120s TARGET)"}
+                      </h4>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 font-mono text-stone-950">
+                        {/* Situation */}
+                        <div className="p-4 bg-white border-2 border-stone-950 rounded-xl relative">
+                          <div className="absolute -top-3 left-4 bg-[#EDC154] border border-stone-950 px-2 py-0.5 text-[8px] font-black rounded-md">15% TIME</div>
+                          <h5 className="font-black text-xs uppercase text-stone-950 mt-1">S - SITUATION</h5>
+                          <p className="text-[10px] text-stone-600 font-bold mt-2">{isFR ? "Le cadre, le contexte et l'enjeu." : "Set the scene, context, and the stakes."}</p>
+                        </div>
+
+                        {/* Task */}
+                        <div className="p-4 bg-white border-2 border-stone-950 rounded-xl relative">
+                          <div className="absolute -top-3 left-4 bg-[#EDC154] border border-stone-950 px-2 py-0.5 text-[8px] font-black rounded-md">15% TIME</div>
+                          <h5 className="font-black text-xs uppercase text-stone-950 mt-1">T - TASK</h5>
+                          <p className="text-[10px] text-stone-600 font-bold mt-2">{isFR ? "La mission et les défis techniques." : "Define your mission and constraints."}</p>
+                        </div>
+
+                        {/* Action */}
+                        <div className="p-4 bg-white border-2 border-stone-950 rounded-xl relative shadow-[2px_2px_0px_0px_rgba(24,99,63,1)]">
+                          <div className="absolute -top-3 left-4 bg-[#18633F] text-white border border-stone-950 px-2 py-0.5 text-[8px] font-black rounded-md">50% TIME</div>
+                          <h5 className="font-black text-xs uppercase text-stone-950 mt-1">A - ACTION</h5>
+                          <p className="text-[10px] text-stone-600 font-bold mt-2">{isFR ? "Ce que VOUS avez fait personnellement." : "What YOU did. Focus on your actions."}</p>
+                        </div>
+
+                        {/* Result */}
+                        <div className="p-4 bg-white border-2 border-stone-950 rounded-xl relative">
+                          <div className="absolute -top-3 left-4 bg-[#EDC154] border border-stone-950 px-2 py-0.5 text-[8px] font-black rounded-md">20% TIME</div>
+                          <h5 className="font-black text-xs uppercase text-stone-950 mt-1">R - RESULT</h5>
+                          <p className="text-[10px] text-stone-600 font-bold mt-2">{isFR ? "Les chiffres, l'impact, le bilan." : "Metrics, lessons, and business impact."}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6 text-sm text-stone-800 leading-relaxed font-bold">
+                      <h3 className="font-sans font-black text-lg text-stone-950 uppercase border-b border-stone-200 pb-2">
+                        {isFR ? "Qu'est-ce que la Méthode STAR ?" : "What is the STAR Method?"}
+                      </h3>
+                      <p>
+                        {isFR
+                          ? "La méthode STAR est la norme d'or recommandée par tous les cabinets de recrutement d'élite pour répondre aux questions comportementales (ex: 'Racontez-moi une fois où vous avez échoué...'). L'IA de SHANA recherche sémantiquement la présence de ces quatre étapes clés dans vos réponses :"
+                          : "The STAR method is the industry standard for handling behavioral questions (e.g., 'Tell me about a time you handled a difficult stakeholder...'). SHANA's semantic evaluator actively audits your speech structure for these four phases:"}
+                      </p>
+                      <ul className="list-decimal pl-5 space-y-3">
+                        <li>
+                          <strong>{isFR ? "S - Situation :" : "S - Situation (15%):"}</strong> {isFR
+                            ? "Posez le contexte. Soyez précis et concis (ex: 'En 2025, lors du lancement de la V2 de notre plateforme qui comptait 50k utilisateurs...')."
+                            : "Provide brief, quantitative context. Set the stakes within 2 sentences (e.g., 'In 2025, during a migration impacting 50,000 active legacy customers...')."}
+                        </li>
+                        <li>
+                          <strong>{isFR ? "T - Tâche (Task) :" : "T - Task (15%):"}</strong> {isFR
+                            ? "Identifiez le problème à résoudre ou la responsabilité qui vous incombait."
+                            : "Clarify the core conflict or technical constraint you were expected to solve."}
+                        </li>
+                        <li>
+                          <strong>{isFR ? "A - Action (50%) :" : "A - Action (50%):"}</strong> {isFR
+                            ? "C'est la partie la plus importante. Décrivez les étapes méthodologiques que vous avez entreprises personnellement. Utilisez 'JE' plutôt que 'NOUS'."
+                            : "The vital core of your narrative. Detail your precise actions, methodologies, and technical logic. Emphasize 'I' rather than 'We'."}
+                        </li>
+                        <li>
+                          <strong>{isFR ? "R - Résultat (20%) :" : "R - Result (20%):"}</strong> {isFR
+                            ? "Concluez avec des indicateurs mesurables de réussite et les leçons apprises (ex: 'Le taux de rétention est remonté de 8% et nous avons livré avec 3 jours d'avance.')."
+                            : "Always close with measurable, hard metrics of success or strategic lessons learned (e.g., 'This improved database throughput by 35% and saved 4 engineering hours per sprint.')."}
+                        </li>
+                      </ul>
+
+                      <h3 className="font-sans font-black text-lg text-stone-950 uppercase border-b border-stone-200 pb-2 pt-4">
+                        {isFR ? "Comment Décrocher les 5 Étoiles" : "How to Unlock the Prestigious 5-Star Rating"}
+                      </h3>
+                      <p>
+                        {isFR
+                          ? "Le système de notation oratoire de SHANA attribue une note étoilée basée sur la conformité de votre réponse à ces principes. Une réponse qui passe trop de temps sur la Situation au détriment de l'Action verra sa note sémantique réduite."
+                          : "SHANA's evaluation matrix translates semantic coverage directly into star scores. A candidate who spends 80% of their speech detailing the Situation with no clear personal Actions will see their structural score penalised."}
+                      </p>
+                    </div>
+                  </article>
+                )}
+              </div>
+            )}
           </div>
         )}
 

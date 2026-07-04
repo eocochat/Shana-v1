@@ -10,17 +10,49 @@ import {
   limit 
 } from "firebase/firestore";
 import { db } from "../lib/firebase.js";
-import { GoogleGenAI, Type } from "@google/genai";
+import { ConfigResolver } from "../../services/secrets/ConfigResolver.js";
 
-// Initialize backend-only Gemini client
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build-gateway',
-    }
+const Type = { OBJECT: "OBJECT", STRING: "STRING", ARRAY: "ARRAY", INTEGER: "INTEGER" };
+
+async function callOpenAi(prompt: string, systemInstruction?: string, isJson?: boolean): Promise<string> {
+  const openAIKey = ConfigResolver.getOpenAIKey();
+  if (!openAIKey) {
+    throw new Error("OpenAI API Key is missing. Please configure it in your environment settings.");
   }
-});
+
+  const messages: any[] = [];
+  if (systemInstruction) {
+    messages.push({ role: "system", content: systemInstruction });
+  }
+  messages.push({ role: "user", content: prompt });
+
+  const body: any = {
+    model: "gpt-4o-mini",
+    messages,
+    temperature: 0.3
+  };
+
+  if (isJson) {
+    body.response_format = { type: "json_object" };
+  }
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${openAIKey}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`OpenAI HTTP Error ${res.status}: ${errorText}`);
+  }
+
+  const json = await res.json();
+  return json.choices[0].message.content || "";
+}
 
 // ==========================================
 // 1. USER SERVICE
@@ -172,17 +204,10 @@ export class AiService {
     
     const prompt = `You are SHANA, an advanced AI interviewer. Generate exactly ONE highly relevant interview question for a ${role} position. Language must be: ${language}.`;
     
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        maxOutputTokens: 250,
-        temperature: 0.7
-      }
-    });
+    const output = await callOpenAi(prompt, "You are an expert technical interviewer.", false);
 
     return {
-      question: response.text || "Can you tell me about your background and experience?"
+      question: output || "Can you tell me about your background and experience?"
     };
   }
 
@@ -190,33 +215,20 @@ export class AiService {
     const language = context.language || "English";
     const role = context.targetRole || "Software Engineer";
 
-    const prompt = `Evaluate the candidate's answer to this question: "${questionText}". Candidate answer: "${answerText}". Target role: ${role}. Respond in ${language}. Generate structured feedback containing scoring (0-100) and actionable tips.`;
+    const prompt = `Evaluate the candidate's answer to this question: "${questionText}". Candidate answer: "${answerText}". Target role: ${role}. Respond in ${language}. Generate structured feedback containing scoring (0-100) and actionable tips. Make sure to respond with a JSON matching this schema:
+{
+  "score": 85,
+  "clarity": 80,
+  "structure": 90,
+  "confidence": 85,
+  "explanation": "text",
+  "actionableTips": ["tip1", "tip2"]
+}`;
     
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            score: { type: Type.INTEGER },
-            clarity: { type: Type.INTEGER },
-            structure: { type: Type.INTEGER },
-            confidence: { type: Type.INTEGER },
-            explanation: { type: Type.STRING },
-            actionableTips: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING }
-            }
-          },
-          required: ["score", "clarity", "structure", "confidence", "explanation", "actionableTips"]
-        }
-      }
-    });
+    const output = await callOpenAi(prompt, "You are an expert interview coach.", true);
 
     try {
-      return JSON.parse(response.text || "{}");
+      return JSON.parse(output || "{}");
     } catch (e) {
       return {
         score: 75,
@@ -234,28 +246,18 @@ export class AiService {
       return { insight_category: "NO_NEW_INSIGHT" };
     }
 
-    const prompt = `Analyze this interview performance history and generate a behavioral pattern discovery: ${JSON.stringify(history)}`;
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            insight_category: { type: Type.STRING },
-            title: { type: Type.STRING },
-            insight: { type: Type.STRING },
-            supporting_evidence: { type: Type.STRING },
-            recommended_focus: { type: Type.STRING }
-          },
-          required: ["insight_category", "title", "insight", "supporting_evidence", "recommended_focus"]
-        }
-      }
-    });
+    const prompt = `Analyze this interview performance history and generate a behavioral pattern discovery: ${JSON.stringify(history)}. Respond with a JSON matching this schema:
+{
+  "insight_category": "STRENGTH",
+  "title": "Strong Quantitative Explanations",
+  "insight": "Your answers show a strong mastery of project-level data.",
+  "supporting_evidence": "example details",
+  "recommended_focus": "continue adding details"
+}`;
+    const output = await callOpenAi(prompt, "You are an advanced career intelligence system.", true);
 
     try {
-      return JSON.parse(response.text || "{}");
+      return JSON.parse(output || "{}");
     } catch (e) {
       return { insight_category: "NO_NEW_INSIGHT" };
     }
@@ -315,28 +317,15 @@ export class CvService {
   static async uploadResume(userId: string, fileData: any) {
     if (!userId) throw new Error("userId is required");
 
-    const prompt = `Extract user experience, education, target role, and key skills from this parsed resume text: ${fileData.text || ""}`;
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            summary: { type: Type.STRING },
-            extracted_role: { type: Type.STRING },
-            key_skills: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING }
-            }
-          },
-          required: ["summary", "extracted_role", "key_skills"]
-        }
-      }
-    });
+    const prompt = `Extract user experience, education, target role, and key skills from this parsed resume text: ${fileData.text || ""}. Respond with a JSON matching this schema:
+{
+  "summary": "profile summary text",
+  "extracted_role": "software engineer",
+  "key_skills": ["javascript", "react"]
+}`;
+    const output = await callOpenAi(prompt, "You are a resume parsing agent.", true);
 
-    const cvAnalysis = JSON.parse(response.text || "{}");
+    const cvAnalysis = JSON.parse(output || "{}");
 
     // Persist parsed CV data into profiles
     const profileRef = doc(db, "profiles", userId);

@@ -1231,7 +1231,7 @@ export default function SaaSAnalyticsDashboard({ currentUserId, lang }: SaaSAnal
                       <div className="p-3 bg-white border border-stone-150 rounded-xl flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Server className="w-4 h-4 text-stone-400" />
-                          <span className="font-bold text-stone-800">Gemini 1.5 Flash</span>
+                          <span className="font-bold text-stone-800">GPT-4o-mini</span>
                         </div>
                         <span className="font-black text-emerald-600">100% (Online)</span>
                       </div>
@@ -1239,7 +1239,7 @@ export default function SaaSAnalyticsDashboard({ currentUserId, lang }: SaaSAnal
                       <div className="p-3 bg-white border border-stone-150 rounded-xl flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Server className="w-4 h-4 text-stone-400" />
-                          <span className="font-bold text-stone-800">Gemini 1.5 Pro</span>
+                          <span className="font-bold text-stone-800">GPT-4o</span>
                         </div>
                         <span className="font-black text-emerald-600">100% (Online)</span>
                       </div>

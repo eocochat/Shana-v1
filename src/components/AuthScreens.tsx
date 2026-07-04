@@ -38,6 +38,7 @@ import AdminView from './AdminView';
 import { ConfigurationService } from '../services/platform';
 import PurchaseView from '../purchase';
 import AICompanion from './AICompanion';
+import CandidateBrainView from './CandidateBrainView';
 
 interface AuthScreensProps {
   initialView?: 'signup' | 'login' | 'forgot-password' | 'profile-creation' | 'home';
@@ -494,6 +495,12 @@ export default function AuthScreens({ initialView = 'login', prefilledUser, onLo
           setSurpriseConfig(null);
           setRefreshToggle(prev => !prev);
         }}
+        onNavigateTab={(tab) => {
+          setIsSimulatingInterview(false);
+          setSurpriseConfig(null);
+          setActiveTab(tab as any);
+          setRefreshToggle(prev => !prev);
+        }}
       />
     );
   }
@@ -609,6 +616,14 @@ export default function AuthScreens({ initialView = 'login', prefilledUser, onLo
                     }
                     setIsVoiceTrainingActive(true);
                   }}
+                />
+              )}
+
+              {activeTab === 'candidate-brain' && (
+                <CandidateBrainView
+                  userId={currentUser.id}
+                  lang={currentProfile.language === 'French' ? 'FR' : 'EN'}
+                  onChangeTab={setActiveTab}
                 />
               )}
               
@@ -727,7 +742,7 @@ export default function AuthScreens({ initialView = 'login', prefilledUser, onLo
                   history={getMergedHistory()}
                   onStartSurpriseInterview={(config) => {
                     setSurpriseConfig(config);
-                    if (config.format === 'Voice Training') {
+                    if (config.format === 'Voice Call' || config.format === 'Voice Training') {
                       setIsVoiceTrainingActive(true);
                     } else {
                       setIsSimulatingInterview(true);

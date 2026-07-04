@@ -126,7 +126,11 @@ class InterviewVoiceManagerClass {
     };
 
     utterance.onerror = (err) => {
-      console.error('[InterviewVoiceManager] Speech synthesis error:', err);
+      if (err && (err.error === 'interrupted' || err.error === 'canceled')) {
+        console.log('[InterviewVoiceManager] Speech synthesis interrupted or canceled.');
+      } else {
+        console.warn('[InterviewVoiceManager] Speech synthesis notice:', err);
+      }
       this.activeUtterances.delete(utterance);
       if (onEnd) onEnd();
     };
