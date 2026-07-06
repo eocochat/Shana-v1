@@ -1,0 +1,371 @@
+[
+  {
+    "id": "sec_3d57ca12-b69a-49c9-9563-9c954f83dd7f",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T10:52:04.106Z",
+    "details": "Unauthenticated access attempt to /api/v1/compliance/tests/history",
+    "ip": "127.0.0.1",
+    "checksum": "e25b04155e82dea67015a7a4eb551807a312fd4e22d41e423bf6f5016dba5e88"
+  },
+  {
+    "id": "sec_a0253dd5-48af-49fa-88bb-3947b429fcfc",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T10:52:04.390Z",
+    "details": "Unauthenticated access attempt to /api/v1/compliance/tests/history",
+    "ip": "127.0.0.1",
+    "checksum": "34432f546e85fb5770553c8655ef7cee7dc8c58853a1b4d3328682a0c68366af"
+  },
+  {
+    "id": "sec_a95152a3-7c15-4abe-b572-bee6eb5c936b",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:42:50.336Z",
+    "details": "Unauthenticated access attempt to /api/v1/compliance/tests/history",
+    "ip": "127.0.0.1",
+    "checksum": "28e6a8f6c6e0d9b404a2057df023bebd9f6f8f16ca480b3062f3987eef773996"
+  },
+  {
+    "id": "sec_25b05e69-8aa7-4669-9b0a-93e151187c6f",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:42:50.482Z",
+    "details": "Unauthenticated access attempt to /api/v1/compliance/tests/history",
+    "ip": "127.0.0.1",
+    "checksum": "da52941a8a99aabd0206eeef8c1cfb4b17ab2d889a265e77e5b6c6b341ec9bfe"
+  },
+  {
+    "id": "sec_a5e1722b-2e40-492d-8617-875fec926da9",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:44:04.803Z",
+    "details": "Unauthenticated access attempt to /api/v1/compliance/tests/history",
+    "ip": "127.0.0.1",
+    "checksum": "5d0a0855c4bdc72f8e7060e3aa2f8e6507965ac1a09b2bf94c48e20f9e90d120"
+  },
+  {
+    "id": "sec_cbc0c80a-dfd1-4181-8859-a838adb9a2f0",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:44:05.117Z",
+    "details": "Unauthenticated access attempt to /api/v1/compliance/tests/history",
+    "ip": "127.0.0.1",
+    "checksum": "5a052d9f9b2dc15fcc7eaef0a4193e2400173948e7a479fec9d371e3c05e2f26"
+  },
+  {
+    "id": "sec_c0850a89-6113-4988-ad86-f98a9aeddf31",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:44:41.282Z",
+    "details": "Unauthenticated access attempt to /api/v1/compliance/tests/run",
+    "ip": "127.0.0.1",
+    "checksum": "a584c4b64cc8fd65598ac49d59d59effc6f37ff1c5c09ce479fc51da096083ab"
+  },
+  {
+    "id": "sec_6ef96f91-0768-409e-8681-996fd5139533",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:44:44.630Z",
+    "details": "Unauthenticated access attempt to /api/v1/compliance/tests/run",
+    "ip": "127.0.0.1",
+    "checksum": "2290264dccef259ee50ec559f387af4ac79e40da0db41362a06a165427283169"
+  },
+  {
+    "id": "sec_6b25a720-013f-4005-9425-255edc0fbc2b",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:46:45.145Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/jobs",
+    "ip": "127.0.0.1",
+    "checksum": "66ef1855f5d5224f1c6dbf326ae87ee8bb4f6591ca04edd3d792ff2dd56b823e"
+  },
+  {
+    "id": "sec_5c3a5b8c-5d19-4d6f-97e7-1b43d94fbe44",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:46:45.230Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/jobs",
+    "ip": "127.0.0.1",
+    "checksum": "8b2600c3821d5fe4362dbbaff1608659c218ab5e2243b145a623cf71c1f32a41"
+  },
+  {
+    "id": "sec_be1bcdcf-8a44-4837-8548-001731fd54d0",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:46:45.240Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/jobs/metrics",
+    "ip": "127.0.0.1",
+    "checksum": "5630daaa8961402dd6a5e243a0369e90c4431291ec75b1f32034adeeeda433ac"
+  },
+  {
+    "id": "sec_b741541a-617d-4290-b923-3302a76c51d1",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:46:45.336Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/jobs/metrics",
+    "ip": "127.0.0.1",
+    "checksum": "bb8083ff27f39c194a59f475b7292f667c4a6f3ae52163012988812b44399346"
+  },
+  {
+    "id": "sec_cc7c6253-d43d-4e77-8ab9-bb5c38ed4406",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:46:45.339Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/realtime/metrics",
+    "ip": "127.0.0.1",
+    "checksum": "aec06dc6f10c84550ce2e27be30f60391967a490dfa5afb9487f3b206da043e8"
+  },
+  {
+    "id": "sec_6590de9f-89b3-4211-a6c9-b00544877b08",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:46:45.442Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/realtime/connections",
+    "ip": "127.0.0.1",
+    "checksum": "b63bf79df226742d4235d58643d18802e412036ac84e2415466d5dc96d458e02"
+  },
+  {
+    "id": "sec_ef55c13a-dd56-46dc-8f55-31400d55848c",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:46:45.444Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/realtime/metrics",
+    "ip": "127.0.0.1",
+    "checksum": "e9a70a0be1c20ee74584aff5a8a99eb8a25ed7caf28adc03954c546ef592a8f1"
+  },
+  {
+    "id": "sec_b4cca6c4-d5b6-447e-ab21-dfcef94d10f6",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:46:45.549Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/realtime/connections",
+    "ip": "127.0.0.1",
+    "checksum": "a8c82346d86179e5d2fae2de67f66223cb99b2a0ad360d1be6def2cb6e4df3eb"
+  },
+  {
+    "id": "sec_c5118d2a-0776-446b-bf31-f1eaa04f1552",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:47:00.007Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/jobs",
+    "ip": "127.0.0.1",
+    "checksum": "c707f9d6465a90d20896a2d54ccaebf52cff4632ad32ebaac1aab20aa26210f3"
+  },
+  {
+    "id": "sec_90b4c6aa-4518-45bc-b9ef-504cd754cb34",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:47:00.141Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/jobs/metrics",
+    "ip": "127.0.0.1",
+    "checksum": "c42b248e3de9a4a7b74a4c0499a1589b1a890c39417c36dccf6d67774b9ac43b"
+  },
+  {
+    "id": "sec_1de68d99-2294-4473-9232-47d3fdc8bf22",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:47:00.247Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/realtime/metrics",
+    "ip": "127.0.0.1",
+    "checksum": "df7fc4713ff7732e942aa380253d6cf2870401c58ebd8ea83a1ddd23ea59154a"
+  },
+  {
+    "id": "sec_55190dc8-2592-47e6-8a0e-02d223e4956b",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:47:00.354Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/realtime/connections",
+    "ip": "127.0.0.1",
+    "checksum": "9010d6b41bc7623e201ce1dc2d86b1b482da39eecadb74ca0356822ef0185a20"
+  },
+  {
+    "id": "sec_ad6b4b79-24d4-4a5d-9a40-de2ebb67de72",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:47:15.154Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/jobs",
+    "ip": "127.0.0.1",
+    "checksum": "3ec36ae551c7f3f8e9f2509dbecd140a1f2fcb46a2478d021b64b457062073b1"
+  },
+  {
+    "id": "sec_96cb349d-77ac-4071-baab-96cde7c0514f",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:47:15.388Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/jobs/metrics",
+    "ip": "127.0.0.1",
+    "checksum": "cabcc8fac1d3b52911114b67cbbd73591dd26981801d16ca995cf64f663bf905"
+  },
+  {
+    "id": "sec_c7fcb987-990e-410c-9a54-188e5b104627",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:47:15.523Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/realtime/metrics",
+    "ip": "127.0.0.1",
+    "checksum": "072bdc3e09d041255320b02433cc121f5334db045020540ebf28394c623c03e0"
+  },
+  {
+    "id": "sec_33831c1a-0109-44fd-bc50-50928309e389",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:47:15.643Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/realtime/connections",
+    "ip": "127.0.0.1",
+    "checksum": "b7bbfc89cbf372656fcaacb74f9f26128361a785b6cf508f76f840c2bda9627f"
+  },
+  {
+    "id": "sec_0b5f7193-0dc2-4778-aa87-678fa1ffb77b",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:47:30.203Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/jobs",
+    "ip": "127.0.0.1",
+    "checksum": "81fd1614c80ff1633be509d31d99f1ac9b9b3493a98eb3b19502996dd5262a82"
+  },
+  {
+    "id": "sec_dd589d1c-5818-4c8e-b99c-5f208e9a46a1",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:47:30.307Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/jobs/metrics",
+    "ip": "127.0.0.1",
+    "checksum": "f430daf7d5efa862e8d28282b11dd0037b4425e045dfb729e1029dee5ed83887"
+  },
+  {
+    "id": "sec_612ce026-7def-4d9e-a6bc-242ebfead138",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:47:30.448Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/realtime/metrics",
+    "ip": "127.0.0.1",
+    "checksum": "cb6c45347e97d1cbfc5cc337e745a9835e966d76b9595e60a20d6435a7c270cf"
+  },
+  {
+    "id": "sec_af617ed8-fe69-441d-951c-52f11a07c771",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T11:47:30.605Z",
+    "details": "Unauthenticated access attempt to /api/v1/admin/realtime/connections",
+    "ip": "127.0.0.1",
+    "checksum": "875b4291841dd4fecd3b018bcf17ec17a89ff2f5b7150730b5141373c9d363a9"
+  },
+  {
+    "id": "sec_e28a52a3-2051-4c22-bf6b-5fe3ba172d7e",
+    "eventType": "cv_pipeline_file_uploaded",
+    "userId": "usr_au05lg4x1",
+    "timestamp": "2026-07-05T11:50:08.541Z",
+    "details": "CV cv_537f63b2-0125-4aa0-a87d-7682d227ce83: Received upload request for CV FR Yannick owona v2.docx (821016 bytes)",
+    "ip": "127.0.0.1",
+    "checksum": "2a2a427f05047ed4f4fc93402b1107cdf6509b343df1de95c9bcfbde70532ba8"
+  },
+  {
+    "id": "sec_2706766e-e232-4a3a-b636-9ccd08160489",
+    "eventType": "cv_pipeline_cv_parsed",
+    "userId": "usr_au05lg4x1",
+    "timestamp": "2026-07-05T11:50:13.393Z",
+    "details": "CV cv_537f63b2-0125-4aa0-a87d-7682d227ce83: CV parsed successfully with structured normalization and set as active.",
+    "ip": "127.0.0.1",
+    "checksum": "3be0e2ce23ceabc59cb6c5bf8e3a16fc2f9f5acc0795116ce0dbbccf42eb8ff8"
+  },
+  {
+    "id": "sec_d27121df-f781-4538-924f-e30ce14f1bb1",
+    "eventType": "cv_pipeline_cv_parsed",
+    "userId": "usr_au05lg4x1",
+    "timestamp": "2026-07-05T11:50:13.533Z",
+    "details": "CV job_393ac1f2-49a0-42e2-92a9-b2de8ba9328c: Background job job_393ac1f2-49a0-42e2-92a9-b2de8ba9328c of type cv_parsing completed successfully.",
+    "ip": "127.0.0.1",
+    "checksum": "36ad70f82524092fa7ad7f76eb11317047da4fdfd649cfff20ab2386f910daf5"
+  },
+  {
+    "id": "sec_e5869f90-04b8-4234-9cd2-12e74a5813e4",
+    "eventType": "job_execution_completed",
+    "userId": "usr_au05lg4x1",
+    "timestamp": "2026-07-05T11:50:13.533Z",
+    "details": "Background job job_393ac1f2-49a0-42e2-92a9-b2de8ba9328c (cv_parsing) succeeded.",
+    "ip": "127.0.0.1",
+    "checksum": "18ea150326e8ff4f361af096c345896a3c78fc4ef1cd454a204a3daec3c39f3c"
+  },
+  {
+    "id": "sec_40923608-09ef-4f0d-a1a6-d24945daf1cd",
+    "eventType": "cv_pipeline_file_uploaded",
+    "userId": "usr_au05lg4x1",
+    "timestamp": "2026-07-05T12:10:55.162Z",
+    "details": "CV cv_249e1267-11df-443b-a41e-f0faa54194e0: Received upload request for CV FR Yannick owona v2.docx (821016 bytes)",
+    "ip": "127.0.0.1",
+    "checksum": "fcfd062b1dcbf180d26762603b9f4d2ccae2f21085d3077c36da569f842c4975"
+  },
+  {
+    "id": "sec_5b42dc30-6290-4563-a583-47273d4036d0",
+    "eventType": "cv_pipeline_cv_parsed",
+    "userId": "usr_au05lg4x1",
+    "timestamp": "2026-07-05T12:11:11.210Z",
+    "details": "CV cv_249e1267-11df-443b-a41e-f0faa54194e0: CV parsed successfully with structured normalization and set as active.",
+    "ip": "127.0.0.1",
+    "checksum": "e6d2be15fdae1f5812a755b3adfd05ce1e9fdd14713eda537a6add714b7b87ed"
+  },
+  {
+    "id": "sec_8406d8cc-41c3-48ad-8bf1-3abfb70e7cb4",
+    "eventType": "cv_pipeline_cv_parsed",
+    "userId": "usr_au05lg4x1",
+    "timestamp": "2026-07-05T12:11:11.429Z",
+    "details": "CV job_87bc0fdc-2962-4117-9267-832210a1814b: Background job job_87bc0fdc-2962-4117-9267-832210a1814b of type cv_parsing completed successfully.",
+    "ip": "127.0.0.1",
+    "checksum": "ec8dec0b4a0a11151641e119a189a3f9cfe9bfbe0697d724eb77b0a3623f9ac6"
+  },
+  {
+    "id": "sec_5a1f5e92-373e-4f2b-87b9-480e1e112bb9",
+    "eventType": "job_execution_completed",
+    "userId": "usr_au05lg4x1",
+    "timestamp": "2026-07-05T12:11:11.430Z",
+    "details": "Background job job_87bc0fdc-2962-4117-9267-832210a1814b (cv_parsing) succeeded.",
+    "ip": "127.0.0.1",
+    "checksum": "12d40d859e1d2d207392e859c4ca64ecbda9557c5d6cbbaa71e87fea976dd488"
+  },
+  {
+    "id": "sec_363288b1-8a48-4fbb-bcae-99c04b221f99",
+    "eventType": "cv_pipeline_file_uploaded",
+    "userId": "usr_au05lg4x1",
+    "timestamp": "2026-07-05T12:11:57.723Z",
+    "details": "CV cv_09202e61-51c6-486f-8481-a592858a170a: Received upload request for CV FR Yannick owona v2.docx (821016 bytes)",
+    "ip": "127.0.0.1",
+    "checksum": "0088102ff217c0e6fc0ee9af61b56b747b7007c7813628631ad2c018a8b35c36"
+  },
+  {
+    "id": "sec_6e357af1-6a1e-4e67-83d4-b95f039c6e81",
+    "eventType": "cv_pipeline_cv_parsed",
+    "userId": "usr_au05lg4x1",
+    "timestamp": "2026-07-05T12:12:13.886Z",
+    "details": "CV cv_09202e61-51c6-486f-8481-a592858a170a: CV parsed successfully with structured normalization and set as active.",
+    "ip": "127.0.0.1",
+    "checksum": "696c6230c3a5f06d26248caf9b113cb8d5e14a2026df258a46ab512991b79074"
+  },
+  {
+    "id": "sec_f0ef76d3-63e0-4c8e-8407-2d0aba9246ab",
+    "eventType": "cv_pipeline_cv_parsed",
+    "userId": "usr_au05lg4x1",
+    "timestamp": "2026-07-05T12:12:14.085Z",
+    "details": "CV job_aac86089-0357-46a1-8b70-776919f3ecb3: Background job job_aac86089-0357-46a1-8b70-776919f3ecb3 of type cv_parsing completed successfully.",
+    "ip": "127.0.0.1",
+    "checksum": "77a12d10eccf88bc85cdbe6a16803a6f843bb3d661ecbbe635097db52372eae4"
+  },
+  {
+    "id": "sec_ef8a4383-d30a-4204-a8b2-417bbedd7183",
+    "eventType": "job_execution_completed",
+    "userId": "usr_au05lg4x1",
+    "timestamp": "2026-07-05T12:12:14.086Z",
+    "details": "Background job job_aac86089-0357-46a1-8b70-776919f3ecb3 (cv_parsing) succeeded.",
+    "ip": "127.0.0.1",
+    "checksum": "018804c7b5b7c89757d0b209fbdb4053e45276079f93406d3ce35ab6d83daf91"
+  },
+  {
+    "id": "sec_0fd94082-0062-4173-a7ec-f972dc86c967",
+    "eventType": "authentication_failure",
+    "userId": "anonymous",
+    "timestamp": "2026-07-05T12:14:47.487Z",
+    "details": "Unauthenticated access attempt to /api/v1/cv/upload",
+    "ip": "127.0.0.1",
+    "checksum": "451c500b3b65fc8dc4ffd4a8737c74c25c4d41f98763588baee0e3a6910dddce"
+  }
+]

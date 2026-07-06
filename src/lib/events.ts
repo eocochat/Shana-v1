@@ -8,7 +8,8 @@ import {
   where, 
   orderBy 
 } from 'firebase/firestore';
-import { OperationType, handleFirestoreError } from './dbSync';
+import { OperationType, handleFirestoreError, ensureFirebaseAuth } from './dbSync';
+import { StorageService } from './storage';
 
 function isPermissionError(err: unknown): boolean {
   const str = err instanceof Error ? err.message : String(err);
@@ -199,13 +200,23 @@ export const ShanaEventTracker = {
 
       console.log(`[SHANA CLOUD SYNC] Synchronizing ${queue.length} events to Firestore...`);
       const remaining: { id: string; event: ShanaEvent }[] = [];
+      const usersStr = localStorage.getItem('shana_users') || '[]';
+      const users = JSON.parse(usersStr);
 
       for (const item of queue) {
         try {
+          const user = users.find((u: any) => u.id === item.event.userId);
+          const userEmail = user?.email || '';
+
+          if (userEmail) {
+            await ensureFirebaseAuth(userEmail, item.event.userId);
+          }
+
           const docRef = doc(db, 'events', item.id);
           await setDoc(docRef, {
             id: item.id,
             user_id: item.event.userId,
+            user_email: userEmail.toLowerCase().trim(),
             session_id: item.event.sessionId,
             event_type: item.event.eventType,
             payload: item.event.payload,
@@ -259,9 +270,19 @@ export const ShanaEventTracker = {
   async fetchSessionTimeline(sessionId: string): Promise<ShanaEvent[]> {
     if (!sessionId) return [];
     try {
+      const activeUser = StorageService.getSession()?.user;
+      const userEmail = activeUser?.email || '';
+      if (activeUser && userEmail) {
+        await ensureFirebaseAuth(userEmail, activeUser.id);
+      }
+
       // Query Firestore collection
       const eventsColl = collection(db, 'events');
-      const q = query(eventsColl, where('session_id', '==', sessionId));
+      const q = query(
+        eventsColl, 
+        where('session_id', '==', sessionId),
+        where('user_email', '==', userEmail.toLowerCase().trim())
+      );
       let snap;
       try {
         snap = await getDocs(q);
@@ -317,8 +338,17 @@ export const ShanaEventTracker = {
   async fetchUserHistory(userId: string): Promise<ShanaEvent[]> {
     if (!userId) return [];
     try {
+      const activeUser = StorageService.getSession()?.user;
+      const userEmail = activeUser?.email || '';
+      if (activeUser && userEmail) {
+        await ensureFirebaseAuth(userEmail, activeUser.id);
+      }
+
       const eventsColl = collection(db, 'events');
-      const q = query(eventsColl, where('user_id', '==', userId));
+      const q = query(
+        eventsColl, 
+        where('user_email', '==', userEmail.toLowerCase().trim())
+      );
       let snap;
       try {
         snap = await getDocs(q);

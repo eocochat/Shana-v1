@@ -178,7 +178,20 @@ export default function CVPrepareFlow({ currentUser, onBackToHome, onComplete }:
     const parsedData = version.parsedOutput || {};
     
     const experiences = parsedData.workExperience || [];
-    const primaryRole = experiences[0]?.role || parsedData.personalInformation?.fullName || "Software Engineer";
+    const rawRole = experiences[0]?.role || "";
+    const rawIndustry = parsedData.industry || "";
+    
+    const isTech = 
+      rawIndustry.toLowerCase().includes("tech") || 
+      rawIndustry.toLowerCase().includes("software") || 
+      rawIndustry.toLowerCase().includes("informatique") ||
+      rawRole.toLowerCase().includes("developer") || 
+      rawRole.toLowerCase().includes("engineer") ||
+      rawRole.toLowerCase().includes("ingénieur") ||
+      rawRole.toLowerCase().includes("développeur");
+    
+    const primaryRole = experiences[0]?.role || (isTech ? "Software Engineer" : "Manager de Restaurant");
+    const industryName = parsedData.industry || (isTech ? "Technology" : "Restauration & Hôtellerie");
     
     // Extract all achievements across work experiences
     const extractedAchievements: string[] = [];
@@ -188,27 +201,41 @@ export default function CVPrepareFlow({ currentUser, onBackToHome, onComplete }:
       }
     });
 
-    const skillsList = parsedData.technicalSkills || ["Engineering"];
+    const defaultSkills = isTech 
+      ? ["Software Engineering", "Systems Architecture"] 
+      : ["Gestion de restaurant", "Service client", "Management d'équipe", "HACCP", "Gestion des stocks"];
+
+    const skillsList = parsedData.technicalSkills && parsedData.technicalSkills.length > 0 
+      ? parsedData.technicalSkills 
+      : defaultSkills;
+
+    const defaultStrengths = isTech 
+      ? ["Strong individual contributor with proven technical capabilities."] 
+      : [
+          "Excellence du service client et optimisation de la satisfaction en salle.",
+          "Leadership d'équipe d'accueil et de cuisine éprouvé.",
+          "Gestion rigoureuse des coûts matières, stocks et plannings."
+        ];
 
     const cvAnalysis: CVAnalysis = {
       userId: userId,
       role: primaryRole,
-      industry: parsedData.industry || "Technology",
+      industry: industryName,
       experienceYears: String(experiences.length || 3),
-      skills: skillsList.length > 0 ? skillsList : ["Software Engineering"],
-      summary: parsedData.summary || `Extracted profile for ${parsedData.personalInformation?.fullName || 'Candidate'}.`,
-      strengths: extractedAchievements.length > 0 ? extractedAchievements.slice(0, 3) : ["Strong individual contributor with proven technical capabilities."],
+      skills: skillsList,
+      summary: parsedData.professionalSummary || parsedData.summary || `Extracted profile for ${parsedData.personalInformation?.fullName || 'Candidate'}.`,
+      strengths: extractedAchievements.length > 0 ? extractedAchievements.slice(0, 3) : defaultStrengths,
       risks: ["Resume quantification can be further expanded."],
       createdAt: new Date().toISOString()
     };
 
     const interviewBlueprint: InterviewBlueprint = {
       userId: userId,
-      behavioralWeight: 35,
-      roleWeight: 35,
+      behavioralWeight: isTech ? 35 : 45,
+      roleWeight: isTech ? 35 : 35,
       industryWeight: 20,
       resumeWeight: 10,
-      primaryFocus: "Core Technical Competency",
+      primaryFocus: isTech ? "Core Technical Competency" : "Operational & Team Leadership",
       secondaryFocus: "STAR Method Mastery",
       difficulty: experiences.length > 8 ? "Senior" : experiences.length > 5 ? "Mid" : "Junior",
       recommendedSessions: experiences.length > 5 ? 8 : 6,

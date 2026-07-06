@@ -1,6 +1,7 @@
 import React from 'react';
 import { translations } from '../translations';
 import { Globe, ArrowUpRight } from 'lucide-react';
+import ShanaLogo from './ShanaLogo';
 
 interface FooterProps {
   lang: 'EN' | 'FR';
@@ -51,11 +52,8 @@ export default function Footer({ lang, onChangeLang, onNavigatePage, onNavigateH
           
           {/* Brand/Tagline Column */}
           <div className="md:col-span-4 space-y-4">
-            <div className="flex items-center gap-2.5 cursor-pointer" onClick={onNavigateHome}>
-              <div className="w-8 h-8 rounded-lg bg-[#EDC154] text-stone-950 border-2 border-stone-950 flex items-center justify-center font-sans font-black text-xs shadow-[2px_2px_0px_0px_rgba(255,255,255,0.15)]">
-                S
-              </div>
-              <span className="font-sans font-black tracking-tight text-white text-base uppercase">SHANA</span>
+            <div className="flex items-center gap-2.5 cursor-pointer hover:opacity-90 transition-opacity" onClick={onNavigateHome}>
+              <ShanaLogo size="sm" theme="gold" showSlogan={false} className="items-start" />
             </div>
             
             <p className="font-sans text-xs font-bold text-[#9CA3AF] tracking-wider uppercase">

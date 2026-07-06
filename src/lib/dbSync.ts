@@ -9,7 +9,46 @@ import {
   where, 
   writeBatch
 } from 'firebase/firestore';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword,
+  setPersistence,
+  browserLocalPersistence
+} from 'firebase/auth';
 import { User, Profile, SessionHistoryItem } from '../types';
+
+export async function ensureFirebaseAuth(email: string, id: string): Promise<void> {
+  if (!auth) return;
+  if (auth.currentUser && auth.currentUser.email?.toLowerCase() === email.toLowerCase()) {
+    return;
+  }
+  const passwords = JSON.parse(localStorage.getItem('shana_passwords') || '{}');
+  const password = passwords[id] || 'DefaultSecurePassword123!';
+  
+  try {
+    await setPersistence(auth, browserLocalPersistence);
+    await signInWithEmailAndPassword(auth, email.toLowerCase().trim(), password);
+    console.log('[SHANA Firebase] Successfully authenticated to Firebase Auth.');
+  } catch (err: any) {
+    if (
+      err.code === 'auth/user-not-found' || 
+      err.code === 'auth/invalid-credential' || 
+      err.code === 'auth/invalid-email' || 
+      err.code === 'auth/wrong-password' ||
+      err.message?.includes('user-not-found') ||
+      err.message?.includes('invalid-credential')
+    ) {
+      try {
+        await createUserWithEmailAndPassword(auth, email.toLowerCase().trim(), password);
+        console.log('[SHANA Firebase] Successfully registered new account in Firebase Auth.');
+      } catch (regErr: any) {
+        console.error('[SHANA Firebase] Failed to auto-register Firebase Auth user:', regErr);
+      }
+    } else {
+      console.error('[SHANA Firebase] Firebase Auth auto-login failed:', err);
+    }
+  }
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -82,14 +121,20 @@ export const DbSyncManager = {
   async saveUserAndProfile(user: User, profile: Profile, cvData?: any) {
     if (!user || !user.id) return;
 
+    await ensureFirebaseAuth(user.email, user.id);
+
     try {
       // 1. Create/Update core users collection document
       const userRef = doc(db, 'users', user.id);
+      const passwords = JSON.parse(localStorage.getItem('shana_passwords') || '{}');
+      const userPassword = passwords[user.id] || '';
+
       await setDoc(userRef, {
         id: user.id,
         email: user.email,
         name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
-        created_at: user.createdAt || new Date().toISOString()
+        created_at: user.createdAt || new Date().toISOString(),
+        password: userPassword
       }, { merge: true });
     } catch (err) {
       if (isPermissionError(err)) {
@@ -133,12 +178,24 @@ export const DbSyncManager = {
   async saveSessionToCloud(userId: string, session: SessionHistoryItem) {
     if (!userId || !session || !session.id) return;
 
+    // Get email
+    const usersStr = localStorage.getItem('shana_users') || '[]';
+    const users = JSON.parse(usersStr);
+    const user = users.find((u: any) => u.id === userId);
+    const userEmail = user?.email || '';
+
+    // Auto-authenticate with Firebase Auth
+    if (userEmail) {
+      await ensureFirebaseAuth(userEmail, userId);
+    }
+
     try {
       // 1. Save core interview_session
       const sessionRef = doc(db, 'interview_sessions', session.id);
       await setDoc(sessionRef, {
         id: session.id,
         user_id: userId,
+        user_email: userEmail.toLowerCase().trim(),
         mode: session.type || 'TRAIN',
         status: 'completed',
         ips_score: session.score || 0,
@@ -161,6 +218,8 @@ export const DbSyncManager = {
       await setDoc(scoreRef, {
         id: session.id,
         session_id: session.id,
+        user_id: userId,
+        user_email: userEmail.toLowerCase().trim(),
         clarity: session.communicationScore || session.score || 80,
         structure: session.resumeScore || 80,
         confidence: session.confidenceScore || 80,
@@ -189,6 +248,8 @@ export const DbSyncManager = {
           await setDoc(answerRef, {
             id: answerId,
             session_id: session.id,
+            user_id: userId,
+            user_email: userEmail.toLowerCase().trim(),
             question: q.questionText || '',
             answer: q.keyPositive || 'No recorded response details',
             duration: 120, // default estimation or calculated duration
@@ -217,11 +278,23 @@ export const DbSyncManager = {
   async saveInsightToCloud(userId: string, discovery: any) {
     if (!userId || !discovery || !discovery.id) return;
 
+    // Get email
+    const usersStr = localStorage.getItem('shana_users') || '[]';
+    const users = JSON.parse(usersStr);
+    const user = users.find((u: any) => u.id === userId);
+    const userEmail = user?.email || '';
+
+    // Auto-authenticate with Firebase Auth
+    if (userEmail) {
+      await ensureFirebaseAuth(userEmail, userId);
+    }
+
     try {
       const insightRef = doc(db, 'insights', discovery.id);
       await setDoc(insightRef, {
         id: discovery.id,
         user_id: userId,
+        user_email: userEmail.toLowerCase().trim(),
         session_id: discovery.sessionId || '',
         type: discovery.category || 'discovery',
         content: discovery.text || '',
@@ -248,10 +321,22 @@ export const DbSyncManager = {
   async saveMonetizationToCloud(userId: string, monetization: any) {
     if (!userId || !monetization) return;
 
+    // Get email
+    const usersStr = localStorage.getItem('shana_users') || '[]';
+    const users = JSON.parse(usersStr);
+    const user = users.find((u: any) => u.id === userId);
+    const userEmail = user?.email || '';
+
+    // Auto-authenticate with Firebase Auth
+    if (userEmail) {
+      await ensureFirebaseAuth(userEmail, userId);
+    }
+
     try {
       const monetizationRef = doc(db, 'monetization', userId);
       await setDoc(monetizationRef, {
         userId,
+        user_email: userEmail.toLowerCase().trim(),
         freeAudio: monetization.freeAudio || 0,
         packAudio: monetization.packAudio || 0,
         topUpAudio: monetization.topUpAudio || 0,
@@ -285,6 +370,17 @@ export const DbSyncManager = {
    */
   async syncCloudToLocal(userId: string): Promise<boolean> {
     if (!userId) return false;
+
+    // Get email
+    const usersStr = localStorage.getItem('shana_users') || '[]';
+    const users = JSON.parse(usersStr);
+    const user = users.find((u: any) => u.id === userId);
+    const userEmail = user?.email || '';
+
+    // Auto-authenticate with Firebase Auth
+    if (userEmail) {
+      await ensureFirebaseAuth(userEmail, userId);
+    }
 
     try {
       console.log(`[SHANA DbSync] Beginning cloud synchronization for user: ${userId}`);
@@ -328,6 +424,12 @@ export const DbSyncManager = {
           localUsers.push(remoteUser);
         }
         localStorage.setItem('shana_users', JSON.stringify(localUsers));
+
+        if (data.password) {
+          const localPasswords = JSON.parse(localStorage.getItem('shana_passwords') || '{}');
+          localPasswords[userId] = data.password;
+          localStorage.setItem('shana_passwords', JSON.stringify(localPasswords));
+        }
       }
 
       // 2. Sync Profile
@@ -376,7 +478,10 @@ export const DbSyncManager = {
       }
 
       // 3. Sync Interview Sessions (History)
-      const sessionsQuery = query(collection(db, 'interview_sessions'), where('user_id', '==', userId));
+      const sessionsQuery = query(
+        collection(db, 'interview_sessions'), 
+        where('user_email', '==', userEmail.toLowerCase().trim())
+      );
       let sessionsSnap;
       try {
         sessionsSnap = await getDocs(sessionsQuery);
@@ -404,7 +509,11 @@ export const DbSyncManager = {
             throw err;
           }
           
-          const answersQuery = query(collection(db, 'answers'), where('session_id', '==', sData.id));
+          const answersQuery = query(
+            collection(db, 'answers'), 
+            where('session_id', '==', sData.id),
+            where('user_email', '==', userEmail.toLowerCase().trim())
+          );
           let answersSnap;
           try {
             answersSnap = await getDocs(answersQuery);
@@ -461,7 +570,10 @@ export const DbSyncManager = {
       }
 
       // 4. Sync Insights/Discoveries
-      const insightsQuery = query(collection(db, 'insights'), where('user_id', '==', userId));
+      const insightsQuery = query(
+        collection(db, 'insights'), 
+        where('user_email', '==', userEmail.toLowerCase().trim())
+      );
       let insightsSnap;
       try {
         insightsSnap = await getDocs(insightsQuery);
@@ -535,5 +647,26 @@ export const DbSyncManager = {
       }
       return false;
     }
+  },
+
+  /**
+   * Queries Firestore by email and triggers a cloud-to-local sync for that user if found.
+   */
+  async syncUserByEmail(email: string): Promise<string | null> {
+    if (!email) return null;
+    try {
+      const q = query(collection(db, 'users'), where('email', '==', email.toLowerCase().trim()));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const userDoc = snap.docs[0];
+        const userId = userDoc.id;
+        console.log(`[SHANA DbSync] Found user in cloud with ID: ${userId}, triggering sync...`);
+        await this.syncCloudToLocal(userId);
+        return userId;
+      }
+    } catch (err) {
+      console.error('[SHANA DbSync] Failed to sync user by email:', err);
+    }
+    return null;
   }
 };

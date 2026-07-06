@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ActiveTab, Language } from '../types';
 import { translations } from '../translations';
-import { Home, Mic, Video, Clock, User, Sparkles, Compass, Brain } from 'lucide-react';
+import { Home, Mic, Video, Clock, User, Sparkles, Compass, Brain, Briefcase } from 'lucide-react';
 import { StorageService } from '../lib/storage';
+import ShanaLogo from './ShanaLogo';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -13,30 +14,33 @@ interface NavbarProps {
 export default function Navbar({ activeTab, lang, onTabChange }: NavbarProps) {
   const t = translations[lang];
   
-  // Local state to re-trigger rendering if profile picture changes
+  // Local state to re-trigger rendering if profile picture or user session changes
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string>('candidate');
+  const [userEmail, setUserEmail] = useState<string>('');
 
-  const updateAvatar = () => {
+  const updateSessionAndAvatar = () => {
     const session = StorageService.getSession();
     setProfilePicture(session?.profile?.avatarUrl || (session?.profile as any)?.profilePicture || null);
+    setUserRole(session?.user?.role || 'candidate');
+    setUserEmail(session?.user?.email?.toLowerCase().trim() || '');
   };
 
   useEffect(() => {
-    updateAvatar();
+    updateSessionAndAvatar();
     
     // Listen for progress / profile update triggers
-    window.addEventListener('shana_progress_update', updateAvatar);
+    window.addEventListener('shana_progress_update', updateSessionAndAvatar);
     return () => {
-      window.removeEventListener('shana_progress_update', updateAvatar);
+      window.removeEventListener('shana_progress_update', updateSessionAndAvatar);
     };
   }, []);
 
-  const session = StorageService.getSession();
-  const userRole = session?.user?.role || 'candidate';
+  const isAdmin = userRole === 'admin' || userRole === 'super_admin' || userEmail === 'eocochat@gmail.com' || userEmail === 'superadmin@shana.com' || userEmail === 'admin@shana.com';
 
   const items: { id: ActiveTab; label: string; icon: any }[] = [
     { id: 'home', label: t.nav.home, icon: Home },
-    { id: 'candidate-brain', label: lang === 'FR' ? 'Cerveau IA' : 'SHANA Brain', icon: Brain },
+    { id: 'candidate-brain', label: lang === 'FR' ? 'IA' : 'SHANA Brain', icon: Brain },
     { id: 'train', label: t.nav.train, icon: Mic },
     { id: 'discoveries', label: (t.nav as any).discoveries || 'Discoveries', icon: Compass },
     { id: 'assessment', label: t.nav.assessment, icon: Video },
@@ -45,8 +49,8 @@ export default function Navbar({ activeTab, lang, onTabChange }: NavbarProps) {
     { id: 'profile', label: t.nav.profile, icon: User }
   ];
 
-  if (userRole === 'admin' || userRole === 'super_admin') {
-    items.push({ id: 'admin', label: (t.nav as any).admin || 'Admin', icon: Sparkles });
+  if (isAdmin) {
+    items.push({ id: 'admin', label: lang === 'FR' ? 'Admin Dashboard' : 'Admin Dashboard', icon: Sparkles });
   }
 
   return (
@@ -55,14 +59,8 @@ export default function Navbar({ activeTab, lang, onTabChange }: NavbarProps) {
         <div className="flex justify-between items-center h-16">
           
           {/* Logo / Brand */}
-          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => onTabChange('home')}>
-            <div className="w-8 h-8 rounded-xl bg-[#18633F] border-2 border-stone-950 flex items-center justify-center text-white shadow-[2px_2px_0px_0px_#111111]">
-              <span className="font-sans font-black text-xs leading-none">S</span>
-            </div>
-            <div>
-              <span className="font-sans font-black text-base tracking-tight text-stone-950 uppercase">{t.brand}</span>
-              <span className="font-mono text-[9px] text-stone-500 uppercase tracking-widest block leading-none">SYSTEM // PRO</span>
-            </div>
+          <div className="flex items-center gap-2.5 cursor-pointer hover:opacity-90 transition-opacity" onClick={() => onTabChange('home')}>
+            <ShanaLogo size="sm" theme="dark" showSlogan={false} />
           </div>
  
           {/* Desktop Navigation Items */}

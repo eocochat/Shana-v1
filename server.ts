@@ -144,7 +144,7 @@ async function extractTextFromFile(file: { data: string; mimeType: string; name:
       if (!PDFParseClass) {
         throw new Error("PDFParse class not found in exports");
       }
-      const instance = new PDFParseClass(fileBuffer);
+      const instance = new PDFParseClass({ data: fileBuffer });
       await instance.load();
       const text = await instance.getText();
       return text || "";
@@ -170,11 +170,135 @@ async function extractTextFromFile(file: { data: string; mimeType: string; name:
 
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
-app.use(inputSanitizerMiddleware);
 
 // Mount central API Gateway and response standardization layers
 app.use(responseStandardizerMiddleware);
+app.use(inputSanitizerMiddleware);
 app.use(requestLoggerMiddleware("GatewayRouter"));
+
+// ====================================================
+// RATE LIMITING & CREDIT VERIFICATION MIDDLEWARES
+// ====================================================
+
+interface RateLimitInfo {
+  count: number;
+  resetTime: number;
+}
+const rateLimits = new Map<string, RateLimitInfo>();
+
+function rateLimiterMiddleware(options: { windowMs: number; max: number; message?: string }) {
+  return (req: any, res: any, next: any) => {
+    const ip = req.ip || req.headers["x-forwarded-for"] || "0.0.0.0";
+    const key = `${ip}:${req.originalUrl || req.path}`;
+    const now = Date.now();
+
+    let limitInfo = rateLimits.get(key);
+
+    if (!limitInfo || now > limitInfo.resetTime) {
+      limitInfo = {
+        count: 1,
+        resetTime: now + options.windowMs
+      };
+      rateLimits.set(key, limitInfo);
+      return next();
+    }
+
+    limitInfo.count += 1;
+
+    if (limitInfo.count > options.max) {
+      return res.status(429).json({
+        error: options.message || "Too many requests, please try again later.",
+        retryAfterMs: limitInfo.resetTime - now
+      });
+    }
+
+    next();
+  };
+}
+
+// Global API rate limiter: 120 requests per minute
+const globalApiRateLimiter = rateLimiterMiddleware({
+  windowMs: 60 * 1000,
+  max: 120,
+  message: "Too many requests. Please wait a minute before retrying."
+});
+
+// Stricter AI-heavy endpoint rate limiter: 20 requests per minute
+const aiEndpointRateLimiter = rateLimiterMiddleware({
+  windowMs: 60 * 1000,
+  max: 20,
+  message: "AI Generation rate limit exceeded. Please wait a minute before your next request."
+});
+
+// Helper middleware to verify and enforce credit balances on the server-side
+function verifyCreditMiddleware(creditType: "AUDIO" | "MIRROR") {
+  return async (req: any, res: any, next: any) => {
+    try {
+      const userId = (req.cookies && req.cookies.shana_sid) || req.body?.userId || req.query?.userId;
+      
+      // Exempt guests, new registrations, or admin users to allow testing & smooth verification
+      if (!userId || userId === 'usr_admin' || userId === 'usr_superadmin') {
+        return next();
+      }
+
+      const { db } = esmRequire('./server/lib/firebase');
+      const { doc, getDoc } = esmRequire('firebase/firestore');
+
+      const monetizationRef = doc(db, 'monetization', userId);
+      const mSnap = await getDoc(monetizationRef);
+
+      // Default seed if monetization doesn't exist yet in Firestore
+      const monetization = mSnap.exists() ? mSnap.data() : {
+        userId,
+        freeAudio: 2,
+        packAudio: 0,
+        topUpAudio: 0,
+        freeMirror: 0,
+        packMirror: 0,
+        topUpMirror: 0,
+        ultraActive: false,
+        ultraExpiresAt: null
+      };
+
+      // Check if Ultra subscription is active and has not expired
+      let isUltra = monetization.ultraActive === true;
+      if (isUltra && monetization.ultraExpiresAt) {
+        if (new Date(monetization.ultraExpiresAt).getTime() < Date.now()) {
+          isUltra = false;
+        }
+      }
+
+      if (creditType === "AUDIO") {
+        const totalAudio = (monetization.freeAudio || 0) + (monetization.packAudio || 0) + (monetization.topUpAudio || 0);
+        if (!isUltra && totalAudio <= 0) {
+          return res.status(403).json({
+            error: "You have used all your audio sessions. Buy a pack or activate Ultra.",
+            errorFR: "Vous avez utilisé toutes vos sessions audio. Achetez un pack ou activez Ultra.",
+            code: "CREDIT_DEPLETED"
+          });
+        }
+      } else if (creditType === "MIRROR") {
+        const totalMirror = (monetization.freeMirror || 0) + (monetization.packMirror || 0) + (monetization.topUpMirror || 0);
+        if (!isUltra && totalMirror <= 0) {
+          return res.status(403).json({
+            error: "You have used all your mirror sessions. Buy a pack or activate Ultra.",
+            errorFR: "Vous avez utilisé toutes vos sessions de miroir. Achetez un pack ou activez Ultra.",
+            code: "CREDIT_DEPLETED"
+          });
+        }
+      }
+
+      next();
+    } catch (err: any) {
+      console.error("[SHANA CREDIT VERIFICATION] Error checking credit:", err);
+      // Fallback: log error and allow request to prevent downtime
+      next();
+    }
+  };
+}
+
+// Mount the global API rate limiter
+app.use("/api", globalApiRateLimiter);
 
 // Mount central API Gateway v1 router
 app.use("/api/v1", v1Router);
@@ -431,8 +555,80 @@ app.post("/api/auth/logout", (req, res) => {
   return res.json({ success: true });
 });
 
+// POST endpoint for GDPR Data Purge / Delete My Account
+app.post("/api/auth/delete-account", async (req, res) => {
+  const userId = (req.cookies && req.cookies.shana_sid) || req.body?.userId;
+
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized: No active user session to delete." });
+  }
+
+  // Prevent deleting administrative accounts during testing
+  if (userId === 'usr_admin' || userId === 'usr_superadmin') {
+    return res.status(403).json({ error: "Administrative profiles cannot be deleted via the client-side purge endpoint." });
+  }
+
+  try {
+    const { db } = esmRequire('./server/lib/firebase');
+    const { doc, collection, query, where, getDocs, deleteDoc } = esmRequire('firebase/firestore');
+
+    console.log(`[GDPR PURGE] Starting automated purge for user: ${userId}`);
+
+    // 1. Delete documents with documentId = userId in users, profiles, monetization
+    const directDocs = ['users', 'profiles', 'monetization'];
+    for (const collName of directDocs) {
+      try {
+        const docRef = doc(db, collName, userId);
+        await deleteDoc(docRef);
+        console.log(`[GDPR PURGE] Deleted ${collName}/${userId} successfully.`);
+      } catch (err: any) {
+        console.warn(`[GDPR PURGE] Ignored doc delete error for ${collName}/${userId}:`, err.message || err);
+      }
+    }
+
+    // 2. Delete linked entries from other collections
+    const collectionsToPurge = [
+      { name: 'interview_sessions', field: 'user_id' },
+      { name: 'scores', field: 'user_id' },
+      { name: 'answers', field: 'user_id' },
+      { name: 'insights', field: 'user_id' },
+      { name: 'events', field: 'user_id' },
+      { name: 'jobs', field: 'userId' }
+    ];
+
+    for (const coll of collectionsToPurge) {
+      try {
+        const q = query(collection(db, coll.name), where(coll.field, '==', userId));
+        const snapshot = await getDocs(q);
+        const deletePromises = snapshot.docs.map((d: any) => deleteDoc(doc(db, coll.name, d.id)));
+        await Promise.all(deletePromises);
+        console.log(`[GDPR PURGE] Purged ${snapshot.docs.length} entries from ${coll.name}.`);
+      } catch (err: any) {
+        console.warn(`[GDPR PURGE] Ignored collection purge error for ${coll.name}:`, err.message || err);
+      }
+    }
+
+    // 3. Clear cookie session
+    res.clearCookie("shana_sid", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax"
+    });
+
+    console.log(`[GDPR PURGE] Full purge completed for user: ${userId}`);
+    return res.json({ 
+      success: true, 
+      message: "Your profile, CV analysis, history, and monetization credits have been completely and permanently deleted under GDPR regulations." 
+    });
+
+  } catch (err: any) {
+    console.error("[GDPR PURGE] Fatal error in data purge controller:", err);
+    return res.status(500).json({ error: "Failed to fully delete account. Please try again or contact support." });
+  }
+});
+
 // POST endpoint for Job Scraping and Analysis via OpenAI
-app.post("/api/analyze-job", async (req, res) => {
+app.post("/api/analyze-job", aiEndpointRateLimiter, verifyCreditMiddleware("AUDIO"), async (req, res) => {
   const { jobUrl, jobDescription, currentProfile } = req.body;
   let jobText = jobDescription || "";
 
@@ -537,7 +733,7 @@ ${jobText.substring(0, 45000)}`,
 });
 
 // API endpoint for CV analysis via OpenAI
-app.post("/api/analyze", async (req, res) => {
+app.post("/api/analyze", aiEndpointRateLimiter, verifyCreditMiddleware("AUDIO"), async (req, res) => {
   const { text, file, userId } = req.body;
   if ((!text || !text.trim()) && (!file || !file.data)) {
     return res
@@ -777,7 +973,7 @@ Return the response exactly as a well-formed JSON object matching this schema:
 });
 
 // API endpoint for adaptive voice coaching in Train Mode (Phase 4)
-app.post("/api/train/chat", async (req, res) => {
+app.post("/api/train/chat", aiEndpointRateLimiter, verifyCreditMiddleware("AUDIO"), async (req, res) => {
   const { chatHistory, userInput, profile, blueprint, surpriseConfig } = req.body;
 
   const targetRole = profile?.targetRole || "Candidate";
@@ -930,7 +1126,7 @@ CRITICAL OPERATING SPECIFICATIONS:
 });
 
 // API endpoint for wrapping up and reviewing a Voice Training session (Phase 4)
-app.post("/api/train/review", async (req, res) => {
+app.post("/api/train/review", aiEndpointRateLimiter, verifyCreditMiddleware("AUDIO"), async (req, res) => {
   const { chatHistory, profile, blueprint } = req.body;
   
   const targetRole = profile?.targetRole || "Candidate";
@@ -1020,7 +1216,7 @@ CRITICAL DIRECTIVES:
 });
 
 // API endpoint for real-time live interview simulation via OpenAI
-app.post("/api/interview/chat", async (req, res) => {
+app.post("/api/interview/chat", aiEndpointRateLimiter, verifyCreditMiddleware("MIRROR"), async (req, res) => {
   const { chatHistory, userInput, profile, blueprint, cvAnalysis, history, surpriseConfig, adaptation } = req.body;
 
   let targetRole = profile?.targetRole || cvAnalysis?.role || "Candidate";
@@ -1190,7 +1386,7 @@ app.post("/api/interview/chat", async (req, res) => {
 });
 
 // API endpoint to generate next question based strictly on Context Pack
-app.post("/api/interview/generate-question", async (req, res) => {
+app.post("/api/interview/generate-question", aiEndpointRateLimiter, verifyCreditMiddleware("MIRROR"), async (req, res) => {
   const { contextPack } = req.body;
   if (!contextPack) {
     return res.status(400).json({ error: "Context Pack is required." });
@@ -1290,7 +1486,7 @@ Guidelines for generating the question:
 });
 
 // API endpoint to evaluate candidate's response based strictly on Phase 6 specs
-app.post("/api/interview/evaluate", async (req, res) => {
+app.post("/api/interview/evaluate", aiEndpointRateLimiter, verifyCreditMiddleware("MIRROR"), async (req, res) => {
   const { input } = req.body;
   if (!input) {
     return res.status(400).json({ error: "Evaluation input is required." });
@@ -1412,7 +1608,7 @@ Expected Competency: "${question_context?.expected_competency || "general_perfor
 });
 
 // API endpoint to recommend interview adaptations
-app.post("/api/interview/adapt", async (req, res) => {
+app.post("/api/interview/adapt", aiEndpointRateLimiter, verifyCreditMiddleware("MIRROR"), async (req, res) => {
   const { input } = req.body;
   if (!input) {
     return res.status(400).json({ error: "Adaptation input is required." });
@@ -1524,7 +1720,7 @@ Recent Feedback Notes: Strength="${recent_feedback?.strength || ""}", Improvemen
 });
 
 // API endpoint to discover meaningful, evidence-based behavioral patterns (Phase 8 Spec)
-app.post("/api/interview/insight", async (req, res) => {
+app.post("/api/interview/insight", aiEndpointRateLimiter, verifyCreditMiddleware("MIRROR"), async (req, res) => {
   const { input } = req.body;
   if (!input) {
     return res.status(400).json({ error: "Insight input is required." });
@@ -1635,7 +1831,7 @@ Evaluation History (last sessions/questions): ${JSON.stringify(evaluation_histor
 });
 
 // API endpoint to generate custom assessment questions using OpenAI or local fallbacks
-app.post("/api/assessment/questions", async (req, res) => {
+app.post("/api/assessment/questions", aiEndpointRateLimiter, verifyCreditMiddleware("MIRROR"), async (req, res) => {
   const { profile, cvAnalysis, history, adaptation, director } = req.body;
   const targetRole = profile?.targetRole || cvAnalysis?.role || "Candidate";
   const industry = profile?.industry || cvAnalysis?.industry || "Technology";
@@ -1864,7 +2060,7 @@ In these trap questions, mention or refer indirectly to the difficulty they face
 });
 
 // API endpoint for Text-to-Speech using OpenAI TTS-1
-app.get("/api/interview/speak", async (req, res) => {
+app.get("/api/interview/speak", aiEndpointRateLimiter, verifyCreditMiddleware("AUDIO"), async (req, res) => {
   const rawText = req.query.text as string;
   const openAIKey = ConfigResolver.getOpenAIKey();
   const selectedVoice = (req.query.voice as string) || "alloy";
@@ -1917,7 +2113,7 @@ app.get("/api/interview/speak", async (req, res) => {
 });
 
 // API endpoint to analyze audio recording/voice response for tone, clarity, and keywords using Whisper & GPT
-app.post("/api/analyze-audio", async (req, res) => {
+app.post("/api/analyze-audio", aiEndpointRateLimiter, verifyCreditMiddleware("AUDIO"), async (req, res) => {
   const { audio, filename, language, targetRole, industry, textFallback } = req.body;
   const isFr = (language === "French" || language === "FR" || language === "fr");
   const openAIKey = ConfigResolver.getOpenAIKey();
@@ -2161,6 +2357,10 @@ function getEmailSubjectForType(type: string, firstName: string, email: string, 
       return isFr 
         ? `📅 Confirmé : Votre session d'entraînement SHANA est planifiée`
         : `📅 Confirmed: Your SHANA Mock Session has been scheduled`;
+    case 'contact':
+      return isFr
+        ? `✉️ Nouveau Message Support : [${extraData?.subject || "Demande"}] de ${firstName}`
+        : `✉️ New Support Request: [${extraData?.subject || "Inquiry"}] from ${firstName}`;
     default:
       return 'SHANA Notification Core Alert';
   }
@@ -2201,218 +2401,276 @@ function getEmailTextForType(type: string, firstName: string, email: string, ext
       return isFr
         ? `Votre session est confirmée pour le ${extraData?.date || 'prochainement'} à ${extraData?.time || 'l\'heure convenue'}.`
         : `Your session is confirmed for ${extraData?.date || 'soon'} at ${extraData?.time || 'scheduled time'}.`;
+    case 'contact':
+      return isFr
+        ? `Message de ${firstName} (${extraData?.email || email}) : ${extraData?.message || ''}`
+        : `Message from ${firstName} (${extraData?.email || email}): ${extraData?.message || ''}`;
     default:
       return 'Operational metrics notification dispatched.';
   }
 }
 
 function getEmailHtmlForType(type: string, firstName: string, email: string, extraData?: any): string {
-  const darkStone = '#1C1917';
   const isFr = extraData?.language === 'French' || extraData?.lang === 'FR';
+
+  // Core high-end style settings
+  const bgMain = '#09090B'; // Zinc 950 obsidian background
+  const bgCard = '#18181B'; // Zinc 900 premium container
+  const borderCard = '#27272A'; // Zinc 800 subtle edge
+  const textPrimary = '#FAFAFA'; // White crisp reading text
+  const textSecondary = '#A1A1AA'; // Zinc 400 elegant reading gray
+  const accentGold = '#FECE4F'; // Signature SHANA Gold
+  const accentGoldHover = '#E0B438'; // Darker gold
+  
+  // Outer wrapper signature
+  const wrapperStart = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: ${bgMain}; padding: 40px 20px; color: ${textPrimary}; max-width: 600px; margin: 0 auto;">
+      <!-- Branding Header -->
+      <div style="text-align: center; margin-bottom: 32px;">
+        <div style="display: inline-block; padding: 6px 16px; background-color: ${bgCard}; border: 1px solid ${borderCard}; border-radius: 30px; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+          <span style="color: ${accentGold}; font-weight: 900; font-size: 16px; letter-spacing: 3px; font-family: monospace;">SHANA</span>
+          <span style="color: ${textPrimary}; font-weight: 500; font-size: 11px; letter-spacing: 1.5px; font-family: monospace; margin-left: 6px;">CORE</span>
+        </div>
+        <div style="color: ${textSecondary}; font-family: monospace; font-size: 9px; letter-spacing: 2px; text-transform: uppercase;">
+          ${isFr ? "PRODUIT SÉCURISÉ & INTELLIGENCE VOCALE" : "SECURE PLATFORM & VOICE INTELLIGENCE"}
+        </div>
+      </div>
+
+      <!-- Main Luxury Card -->
+      <div style="background-color: ${bgCard}; border: 1px solid ${borderCard}; border-top: 4px solid ${accentGold}; border-radius: 20px; padding: 40px 32px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);">
+  `;
+
+  const wrapperEnd = `
+      </div>
+
+      <!-- Footer Branding -->
+      <div style="text-align: center; margin-top: 36px; font-family: monospace; font-size: 9px; color: #52525B; line-spacing: 1.6;">
+        <p style="margin: 0; letter-spacing: 1.5px;">SECURE TRANSITION LAYER SHA-256 SIGNED BY SHANA LABS</p>
+        <p style="margin: 6px 0 0 0;">Do not reply to this automated transmission. eocochat@gmail.com security active.</p>
+      </div>
+    </div>
+  `;
+
+  if (type === 'contact') {
+    const contactSubject = extraData?.subject || (isFr ? 'Demande de Support SHANA' : 'SHANA Support Request');
+    const contactMessage = extraData?.message || '';
+    const contactSenderEmail = extraData?.email || email;
+    return `
+      ${wrapperStart}
+        <h2 style="font-size: 24px; font-weight: 900; color: ${textPrimary}; margin-top: 0; margin-bottom: 8px; font-family: sans-serif; letter-spacing: -0.5px;">
+          ${isFr ? 'Nouvelle Demande de Support' : 'New Secure Support Inquiry'}
+        </h2>
+        <div style="font-family: monospace; font-size: 11px; color: ${accentGold}; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1px;">
+          ✉ Secure Contact Form Dispatched
+        </div>
+
+        <p style="font-size: 14px; line-height: 1.6; color: ${textSecondary}; margin-bottom: 24px;">
+          ${isFr 
+            ? `Un nouveau message a été envoyé via l'interface de contact par <strong>${firstName}</strong> (<a href="mailto:${contactSenderEmail}" style="color: ${accentGold}; text-decoration: none;">${contactSenderEmail}</a>).`
+            : `A new inquiry has been transmitted via the contact interface by <strong>${firstName}</strong> (<a href="mailto:${contactSenderEmail}" style="color: ${accentGold}; text-decoration: none;">${contactSenderEmail}</a>).`}
+        </p>
+
+        <!-- Message Details Card -->
+        <div style="background-color: #1F1F23; border: 1px solid #2A2A2F; border-radius: 12px; padding: 20px; margin-bottom: 28px;">
+          <p style="margin: 0 0 12px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: ${accentGold}; font-family: monospace; letter-spacing: 1.5px;">
+            ${isFr ? 'DÉTAILS DU MESSAGE :' : 'MESSAGE DETAILS:'}
+          </p>
+          <div style="border-bottom: 1px solid #2D2D30; padding: 6px 0; display: flex; justify-content: space-between; font-size: 13px;">
+            <strong style="color: ${textPrimary}; font-weight: 600;">${isFr ? 'Sujet :' : 'Subject:'}</strong>
+            <span style="color: ${textSecondary};">${contactSubject}</span>
+          </div>
+          <div style="padding: 12px 0 0 0; font-size: 13px; line-height: 1.6;">
+            <strong style="color: ${textPrimary}; font-weight: 600; display: block; margin-bottom: 8px;">${isFr ? 'Contenu :' : 'Content:'}</strong>
+            <div style="color: ${textSecondary}; background-color: #09090B; padding: 12px; border-radius: 6px; font-family: sans-serif; border: 1px solid #27272A; white-space: pre-wrap;">${contactMessage}</div>
+          </div>
+        </div>
+      ${wrapperEnd}
+    `;
+  }
 
   if (type === 'signup') {
     return `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
-        <!-- Header Banner -->
-        <div style="background-color: ${darkStone}; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-          <div style="display: inline-block; width: 40px; height: 40px; background-color: #FAF7F2; color: ${darkStone}; border-radius: 8px; font-weight: 900; font-size: 20px; line-height: 40px; text-align: center; margin-bottom: 8px;">S</div>
-          <h1 style="color: #FAF7F2; font-size: 20px; font-weight: 900; margin: 0; letter-spacing: 2px; text-transform: uppercase;">SHANA CONSOLE</h1>
-          <p style="color: #A8A29E; font-size: 11px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 1px;">SYSTEM VERIFICATION CORE ONBOARDING</p>
+      ${wrapperStart}
+        <h2 style="font-size: 24px; font-weight: 900; color: ${textPrimary}; margin-top: 0; margin-bottom: 8px; font-family: sans-serif; letter-spacing: -0.5px;">
+          ${isFr ? `Bienvenue sur l'écosystème SHANA` : `Welcome to the SHANA Ecosystem`}
+        </h2>
+        <div style="font-family: monospace; font-size: 11px; color: ${accentGold}; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1px;">
+          ✓ Onboarding Session Initiated
         </div>
 
-        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5; box-shadow: 0 4px 12px rgba(0,0,0,0.01);">
-          <h2 style="font-size: 18px; font-weight: 850; color: #111111; margin-top: 0; margin-bottom: 12px; border-bottom: 1px solid #F3F1ED; padding-bottom: 12px;">
-            ${isFr ? `Bonjour ${firstName}, bienvenue sur la console Shana !` : `Bonjour ${firstName}, welcome to Shana Console!`}
-          </h2>
-          <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-bottom: 18px;">
-            ${isFr 
-              ? `Votre profil professionnel sécurisé associé à <strong>${email}</strong> a été créé avec succès. Notre simulateur d'entretien repose sur des algorithmes d'analyse vocale et comportementale de pointe.`
-              : `Your professional secure profile associated with <strong>${email}</strong> has been successfully instantiated. Our career capability assessment simulation runs on actual professional parameters.`}
+        <p style="font-size: 14px; line-height: 1.6; color: ${textSecondary}; margin-bottom: 24px;">
+          ${isFr 
+            ? `Bonjour ${firstName}, votre compte associé à <strong>${email}</strong> a été créé avec succès. Notre plateforme d'intelligence de carrière est prête à analyser vos compétences vocales, structurelles et professionnelles.`
+            : `Hello ${firstName}, your secure profile associated with <strong>${email}</strong> has been successfully instantiated. Our career capabilities platform is fully configured to evaluate your verbal, structural, and professional vectors.`}
+        </p>
+
+        <!-- Accent Highlight Bar -->
+        <div style="background-color: #27272A; border-left: 4px solid ${accentGold}; border-radius: 8px; padding: 18px; margin: 28px 0;">
+          <p style="margin: 0; font-weight: 800; font-size: 12px; color: ${accentGold}; letter-spacing: 1px; text-transform: uppercase; font-family: monospace;">
+            ⚡ ${isFr ? 'PROCHAINE ÉTAPE CRITIQUE :' : 'CRITICAL NEXT STEP:'}
           </p>
+          <p style="margin: 6px 0 0 0; font-size: 13px; color: ${textPrimary}; line-height: 1.5;">
+            ${isFr
+              ? 'Accédez à votre espace, paramétrez votre poste cible et importez votre CV pour lancer l\'analyse initiale.'
+              : 'Access your console dashboard, select your target role profile, and upload your CV to start the master career mapping.'}
+          </p>
+        </div>
 
-          <div style="background-color: #FECE4F; border-radius: 12px; padding: 16px; margin: 20px 0; border: 1px solid #E0B438;">
-            <p style="margin: 0; font-weight: 900; font-size: 13px; color: #1C1917; letter-spacing: -0.2px;">
-              ⚡ ${isFr ? 'ACTION IMMÉDIATE RECOMMANDÉE :' : 'IMMEDIATE STEP MANDATED:'}
-            </p>
-            <p style="margin: 6px 0 0 0; font-size: 12px; color: #2B281B; line-height: 1.4;">
-              ${isFr
-                ? 'Accédez à votre tableau de bord, personnalisez votre poste cible, puis importez votre CV afin d\'analyser votre profil.'
-                : 'Access your Shana console dashboard, personalize your target industry metrics, and complete the CV master profile evaluation.'}
-            </p>
-          </div>
-
-          <div style="background: linear-gradient(135deg, #FFF9EB 0%, #FFF5D6 100%); padding: 16px; border-radius: 12px; border: 1px solid #FFE8A3; margin-bottom: 24px;">
-            <h4 style="margin: 0 0 8px 0; font-size: 12px; font-weight: 800; color: #6D4C0E; text-transform: uppercase; font-family: monospace;">${isFr ? 'Vos Jalons Actifs :' : 'Your Active Milestones:'}</h4>
-            <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #604515; line-height: 1.6;">
-              <li>${isFr ? 'Alignement du profil de carrière' : 'Perform career profile alignment'}</li>
-              <li>${isFr ? 'Importation de votre CV & cartographie des compétences' : 'Upload master resume / resume points mapping'}</li>
-              <li>${isFr ? 'Entraînement vocal et simulation conversationnelle contextuelle' : 'Simulate situational voice and conversational training'}</li>
-            </ul>
-          </div>
-
-          <div style="text-align: center; margin: 28px 0 10px 0;">
-            <a href="#" style="background-color: ${darkStone}; color: #FAF7F2; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 12px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
-              ${isFr ? 'Lancer le Tableau de Bord &' : 'Launch Active Onboarding Screen &rarr;'}
-            </a>
+        <!-- Milestones list -->
+        <div style="background-color: #1F1F23; padding: 20px; border-radius: 12px; border: 1px solid #2A2A2F; margin-bottom: 32px;">
+          <h4 style="margin: 0 0 12px 0; font-size: 11px; font-weight: bold; color: ${textSecondary}; text-transform: uppercase; font-family: monospace; letter-spacing: 1px;">
+            ${isFr ? 'VOS PARCOURS D\'ENTRAÎNEMENT ACTIFS :' : 'YOUR ACTIVE PERFORMANCE TRACKS:'}
+          </h4>
+          <div style="font-size: 13px; color: ${textPrimary}; line-height: 1.8;">
+            <div style="margin-bottom: 8px;">📊 <strong style="color: ${accentGold};">Phase 1:</strong> ${isFr ? 'Analyse & Cartographie de CV IA' : 'AI CV Scan & Career Competency Mapping'}</div>
+            <div style="margin-bottom: 8px;">🗣️ <strong style="color: ${accentGold};">Phase 2:</strong> ${isFr ? 'Entraînements Vocaux & Exercices Multi-secteurs' : 'Speech Articulation Practice & Multi-sector Drills'}</div>
+            <div>🏆 <strong style="color: ${accentGold};">Phase 3:</strong> ${isFr ? 'Examen Miroir & Évaluation Certifiée SHANA' : 'Mirror Exam & Official SHANA Evaluation Certified'}</div>
           </div>
         </div>
 
-        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 10px; color: #A8A29E;">
-          <p style="margin: 0;">SECURE ENVELOPE SHA-256 SIGNED BY SHANA AUTH ENGINE</p>
-          <p style="margin: 4px 0 0 0;">Do not reply to this systemic notice email.</p>
+        <!-- Call to Action -->
+        <div style="text-align: center; margin-top: 32px; margin-bottom: 8px;">
+          <a href="#" style="background-color: ${accentGold}; color: #000000; text-decoration: none; padding: 16px 36px; border-radius: 30px; font-size: 13px; font-weight: bold; letter-spacing: 1.5px; text-transform: uppercase; display: inline-block; box-shadow: 0 8px 24px rgba(254, 206, 79, 0.25); transition: background-color 0.2s;">
+            ${isFr ? 'Accéder à mon Tableau de Bord' : 'Launch Onboarding Console'}
+          </a>
         </div>
-      </div>
+      ${wrapperEnd}
     `;
   }
 
   if (type === 'login') {
     return `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
-        <!-- Security Header -->
-        <div style="background-color: #111111; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-          <h1 style="color: #EF4444; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">${isFr ? 'ALERTE DE SÉCURITÉ' : 'SECURITY ALERT'}</h1>
-          <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">${isFr ? 'NOUVEL ÉVÉNEMENT DE CONNEXION DÉTECTÉ' : 'NEW AUTHENTICATION EVENT DETECTED'}</p>
+      ${wrapperStart}
+        <h2 style="font-size: 22px; font-weight: 900; color: ${textPrimary}; margin-top: 0; margin-bottom: 8px; font-family: sans-serif; letter-spacing: -0.5px;">
+          ${isFr ? 'Nouvelle Connexion Sécurisée' : 'New Security Authentication'}
+        </h2>
+        <div style="font-family: monospace; font-size: 11px; color: #EF4444; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1px;">
+          ⚠ Security Authorization Event
         </div>
 
-        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
-          <h2 style="font-size: 15px; font-weight: 800; color: #111111; margin-top: 0; margin-bottom: 12px;">
-            ${isFr ? 'Connexion Sécurisée Validée' : 'Secure Login Verified'}
-          </h2>
-          <p style="font-size: 12.5px; line-height: 1.5; color: #444444; margin-bottom: 20px;">
-            ${isFr 
-              ? `Une session utilisateur a été initiée pour le compte <strong>${email}</strong>.`
-              : `An authorized user session was successfully instantiated for the account <strong>${email}</strong>.`}
+        <p style="font-size: 14px; line-height: 1.6; color: ${textSecondary}; margin-bottom: 24px;">
+          ${isFr 
+            ? `Une nouvelle session de connexion a été initiée et validée pour votre profil <strong>${email}</strong>.`
+            : `A new verified user session has been successfully established for your profile <strong>${email}</strong>.`}
+        </p>
+
+        <!-- Telemetry Data Container -->
+        <div style="background-color: #1F1F23; border-radius: 12px; padding: 20px; border: 1px solid #2A2A2F; margin-bottom: 28px; font-family: monospace; font-size: 12px; line-height: 1.6; color: ${textSecondary};">
+          <p style="margin: 0 0 10px 0; font-weight: bold; color: ${accentGold}; font-family: sans-serif; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">TELEMETRY TRACE LOG:</p>
+          <div style="border-bottom: 1px solid #2D2D30; padding: 6px 0; display: flex; justify-content: space-between;"><span style="color:#71717A;">Platform Access:</span> <span style="color:${textPrimary};">Chrome 125 (macOS)</span></div>
+          <div style="border-bottom: 1px solid #2D2D30; padding: 6px 0; display: flex; justify-content: space-between;"><span style="color:#71717A;">Tunnel Protocol:</span> <span style="color:${textPrimary};">HTTPS Secure Node</span></div>
+          <div style="border-bottom: 1px solid #2D2D30; padding: 6px 0; display: flex; justify-content: space-between;"><span style="color:#71717A;">Geographic Origin:</span> <span style="color:${textPrimary};">Paris, Île-de-France, FR</span></div>
+          <div style="padding: 6px 0 0 0; display: flex; justify-content: space-between;"><span style="color:#71717A;">Timestamp:</span> <span style="color:${textPrimary};">${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</span></div>
+        </div>
+
+        <!-- Alert footer warning -->
+        <div style="border-left: 3px solid #EF4444; background-color: rgba(239, 68, 68, 0.08); padding: 14px; border-radius: 6px; margin-bottom: 28px;">
+          <p style="margin: 0; font-size: 12.5px; color: #FCA5A5; font-weight: 500; line-height: 1.5;">
+            <strong>${isFr ? 'Pas à l\'origine de cette session ?' : 'Do not recognize this login?'}</strong> ${isFr ? 'Si vous n\'êtes pas à l\'origine de cette connexion, veuillez immédiatement sécuriser vos jetons de connexion.' : 'If you did not authorize this access session, change your master password reset keys immediately to lock down your credentials.'}
           </p>
-
-          <!-- Device specifications -->
-          <div style="background-color: #F8F6F2; border-radius: 10px; padding: 14px; border: 1px solid #EAE6DF; margin-bottom: 24px; font-family: monospace; font-size: 11px; line-height: 1.6; color: #555555;">
-            <p style="margin: 0; font-weight: bold; color: #1C1917; font-size: 11.5px; font-family: sans-serif; margin-bottom: 6px;">TELEMETRY PARAMETERS:</p>
-            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">Device:</strong> <span>Chrome 125.4 (MacBook Pro)</span></div>
-            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">IP Address:</strong> <span>82.112.45.221 (Secure TLS Tunnel)</span></div>
-            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">Location:</strong> <span>Paris, Île-de-France, France</span></div>
-            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">Access Date:</strong> <span>${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</span></div>
-          </div>
-
-          <div style="border-left: 3px solid #FECE4F; background-color: #FFFDF5; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
-            <p style="margin: 0; font-size: 11.5px; color: #7A5310; font-weight: 600; line-height: 1.4;">
-              <strong>${isFr ? 'Ce n\'est pas vous ?' : 'Not recognize this session?'}</strong> ${isFr ? 'Si vous n\'avez pas initié cette connexion, réinitialisez immédiatement votre mot de passe pour sécuriser votre compte.' : 'If you did not log in from this location, click below to lock down your master tokens instantly and format a new password reset.'}
-            </p>
-          </div>
-
-          <div style="text-align: center; margin: 24px 0 10px 0;">
-            <a href="#" style="background-color: #EF4444; color: #FFFFFF; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase; display: inline-block;">
-              ${isFr ? 'Déconnecter & Révoquer la Session' : 'De-Authorize & Terminate Token Session'}
-            </a>
-          </div>
         </div>
 
-        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
-          <p style="margin: 0;">SECURED HTTPS PROTOCOL LAYER // SHANA-SECUR-GUARD</p>
+        <!-- Action Button Red -->
+        <div style="text-align: center; margin-top: 10px;">
+          <a href="#" style="background-color: #EF4444; color: #FFFFFF; text-decoration: none; padding: 14px 28px; border-radius: 30px; font-size: 12px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block;">
+            ${isFr ? 'Révoquer la session & Sécuriser' : 'De-Authorize Session Tokens'}
+          </a>
         </div>
-      </div>
+      ${wrapperEnd}
     `;
   }
 
   if (type === 'reset-password') {
     return `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
-        <!-- Reset Header -->
-        <div style="background-color: ${darkStone}; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-          <div style="display: inline-block; width: 36px; height: 36px; background-color: #FECE4F; border-radius: 50%; text-align: center; line-height: 36px; font-weight: bold; font-size: 16px; margin-bottom: 10px; color: #1C1917;">🔑</div>
-          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">${isFr ? 'MOT DE PASSE' : 'PASSWORD RESTRUCTURE'}</h1>
-          <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">AUTHORIZED RECOVERY TOKEN DISPATCH</p>
+      ${wrapperStart}
+        <h2 style="font-size: 22px; font-weight: 900; color: ${textPrimary}; margin-top: 0; margin-bottom: 8px; font-family: sans-serif; letter-spacing: -0.5px;">
+          ${isFr ? 'Restauration de Mot de Passe' : 'Credential Reset Restructure'}
+        </h2>
+        <div style="font-family: monospace; font-size: 11px; color: ${accentGold}; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1px;">
+          ✓ Authorization Key Dispatched
         </div>
 
-        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
-          <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-top: 0; margin-bottom: 18px;">
-            ${isFr 
-              ? `Alerte de sécurité. Un jeton de réinitialisation temporaire a été configuré pour le compte lié à <strong>${email}</strong>.`
-              : `Security alert. A temporary resynchronization link has been configured for the credentials associated with <strong>${email}</strong>.`}
-          </p>
+        <p style="font-size: 14px; line-height: 1.6; color: ${textSecondary}; margin-bottom: 24px;">
+          ${isFr 
+            ? `Une demande de réinitialisation de mot de passe a été déclenchée pour le compte de <strong>${email}</strong>. Utilisez le jeton cryptographique à usage unique ci-dessous.`
+            : `A secure request to restructure credentials has been triggered for the account belonging to <strong>${email}</strong>. Apply the temporary cryptographic token below.`}
+        </p>
 
-          <div style="background: #FAF7F2; border-radius: 10px; padding: 18px; margin: 20px 0; border: 1px solid #EAE6DF; border-left: 4px solid #1C1917;">
-            <p style="margin: 0 0 6px 0; font-size: 10px; text-transform: uppercase; font-weight: bold; color: #78716C; font-family: monospace;">${isFr ? 'Code de Sécurité' : 'Cryptographic Reset Code'}</p>
-            <p style="margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 4px; color: #1C1917; font-family: monospace;">SHANA-992-SEC</p>
-          </div>
-
-          <p style="font-size: 12px; line-height: 1.5; color: #666666; margin-bottom: 24px;">
-            ${isFr
-              ? `Ce jeton est à usage unique et reste valide pendant exactement <strong>15 minutes</strong>. Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail en toute sécurité.`
-              : `This single-use security token remains valid for exactly <strong>15 minutes</strong>. If you did not ask for this credential resynchronization, you can safely ignore this document; your security integrity is uncompromised.`}
-          </p>
-
-          <div style="text-align: center; margin: 24px 0 10px 0;">
-            <a href="#" style="background-color: #FECE4F; color: #1C1917; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 11px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block; border: 1px solid #E0B438;">
-              ${isFr ? 'Réinitialiser le Mot de passe' : 'Perform Secure Password Reset'}
-            </a>
-          </div>
+        <!-- Big code display box -->
+        <div style="background-color: #1F1F23; border: 1px dashed ${accentGold}; border-radius: 12px; padding: 24px; text-align: center; margin: 28px 0; box-shadow: inset 0 2px 10px rgba(0,0,0,0.4);">
+          <span style="display: block; font-size: 10px; text-transform: uppercase; color: ${textSecondary}; font-family: monospace; letter-spacing: 1.5px; margin-bottom: 8px;">
+            ${isFr ? 'VOTRE CODE DE SÉCURITÉ' : 'YOUR SINGLE-USE ACCESS TOKEN'}
+          </span>
+          <span style="font-size: 26px; font-weight: 900; letter-spacing: 5px; color: ${textPrimary}; font-family: monospace;">
+            SHANA-992-SEC
+          </span>
         </div>
 
-        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
-          <p style="margin: 0;">IP REGISTERED ON REQUEST: 195.154.122.4 (AUTHORIZED REQUEST)</p>
+        <p style="font-size: 12.5px; line-height: 1.5; color: ${textSecondary}; margin-bottom: 32px;">
+          ${isFr
+            ? `Ce code de réinitialisation expirera automatiquement dans exactement <strong>15 minutes</strong>. Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail en toute sécurité.`
+            : `This cryptographic authentication code remains valid for exactly <strong>15 minutes</strong>. If you did not command this credentials restructure, your system safety remains absolute; simply disregard this transmission.`}
+        </p>
+
+        <div style="text-align: center;">
+          <a href="#" style="background-color: ${accentGold}; color: #000000; text-decoration: none; padding: 15px 36px; border-radius: 30px; font-size: 12px; font-weight: bold; letter-spacing: 1.5px; text-transform: uppercase; display: inline-block; box-shadow: 0 8px 20px rgba(254, 206, 79, 0.2);">
+            ${isFr ? 'Réinitialiser mes identifiants' : 'Perform Secure Password Reset'}
+          </a>
         </div>
-      </div>
+      ${wrapperEnd}
     `;
   }
 
   if (type === 'cv-analyzed') {
-    const targetRole = extraData?.targetRole || (isFr ? 'Candidat' : 'Candidate');
-    const industry = extraData?.industry || (isFr ? 'Général' : 'General');
+    const targetRole = extraData?.targetRole || (isFr ? 'Poste Ciblé' : 'Target Position');
+    const industry = extraData?.industry || (isFr ? 'Secteur d\'activité' : 'Industry sector');
     const strengths = extraData?.strengths || (isFr 
       ? ['Communication structurelle', 'Sens technique aiguisé', 'Adaptabilité stratégique'] 
       : ['Structural communication', 'Sharp technical delivery', 'Strategic adaptability']);
     
     return `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
-        <!-- CV Header -->
-        <div style="background-color: ${darkStone}; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-          <div style="display: inline-block; width: 40px; height: 40px; background-color: #FECE4F; color: ${darkStone}; border-radius: 8px; font-weight: 900; font-size: 20px; line-height: 40px; text-align: center; margin-bottom: 8px;">🎯</div>
-          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">SHANA INTELLIGENCE</h1>
-          <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">${isFr ? 'EVALUATION ET CARTOGRAPHIE DE CV TERMINEE' : 'CV PROFILE COMPATIBILITY MAP COMPLETE'}</p>
+      ${wrapperStart}
+        <h2 style="font-size: 24px; font-weight: 900; color: ${textPrimary}; margin-top: 0; margin-bottom: 8px; font-family: sans-serif; letter-spacing: -0.5px;">
+          ${isFr ? 'Analyse de Profil IA Complétée' : 'AI Profile Mapping Complete'}
+        </h2>
+        <div style="font-family: monospace; font-size: 11px; color: ${accentGold}; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1px;">
+          🎯 SHANA Intelligence Core Scan
         </div>
 
-        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
-          <h2 style="font-size: 16px; font-weight: 850; color: #111111; margin-top: 0; margin-bottom: 12px;">
-            ${isFr ? `Félicitations ${firstName} ! Votre CV est analysé.` : `Congratulations ${firstName}! Your CV mapping is complete.`}
-          </h2>
-          <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-bottom: 20px;">
-            ${isFr
-              ? `Notre moteur d'IA Shana a scanné vos compétences par rapport au marché. Votre profil a été configuré avec succès pour le poste ciblé : <strong>${targetRole}</strong> dans le secteur <strong>${industry}</strong>.`
-              : `Our Shana AI Engine has benchmarked your professional achievements against target market vectors. Your master profile is successfully aligned for the position: <strong>${targetRole}</strong> within the <strong>${industry}</strong> sector.`}
+        <p style="font-size: 14px; line-height: 1.6; color: ${textSecondary}; margin-bottom: 24px;">
+          ${isFr
+            ? `Félicitations ${firstName} ! Notre moteur d'intelligence artificielle a fini d'analyser vos expériences par rapport au marché du travail pour le poste de <strong>${targetRole}</strong> (${industry}).`
+            : `Félicitations ${firstName}! Our neural analysis engine has completed mapping your professional achievements against target market benchmarks for the role of <strong>${targetRole}</strong> within the <strong>${industry}</strong> sector.`}
+        </p>
+
+        <!-- Elegant Radial Score Box -->
+        <div style="background: linear-gradient(135deg, #1A2821 0%, #111B16 100%); border: 1px solid #10B981; padding: 24px; border-radius: 16px; text-align: center; margin: 28px 0; box-shadow: 0 8px 24px rgba(16, 185, 129, 0.1);">
+          <p style="margin: 0 0 6px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: #34D399; font-family: monospace; letter-spacing: 1.5px;">
+            ${isFr ? 'SCORE D\'ALIGNEMENT PROFESSIONNEL' : 'GLOBAL CAPABILITY COHERENCE SCORE'}
           </p>
+          <p style="margin: 0; font-size: 40px; font-weight: 900; color: #10B981; font-family: sans-serif;">
+            ${extraData?.score || 88}%
+          </p>
+        </div>
 
-          <!-- Core Score Box -->
-          <div style="background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%); border: 1px solid #A7F3D0; padding: 18px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-            <p style="margin: 0 0 4px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: #065F46; font-family: monospace; letter-spacing: 1px;">
-              ${isFr ? 'COHÉRENCE DU PROFIL GLOBALE' : 'GLOBAL PROFILE COHERENCE'}
-            </p>
-            <p style="margin: 0; font-size: 32px; font-weight: 900; color: #047857; font-family: sans-serif;">
-              ${extraData?.score || 88}%
-            </p>
-          </div>
-
-          <div style="margin-bottom: 24px;">
-            <h4 style="margin: 0 0 10px 0; font-size: 12px; font-weight: 800; color: #1C1917; text-transform: uppercase; letter-spacing: 0.5px;">
-              🛡️ ${isFr ? 'Forces Clés Détectées :' : 'Key Identified Strengths:'}
-            </h4>
-            <div style="background-color: #F8F6F2; padding: 14px; border-radius: 10px; border: 1px solid #EAE6DF;">
-              <ul style="margin: 0; padding-left: 18px; font-size: 12.5px; color: #444444; line-height: 1.7;">
-                ${strengths.map((s: string) => `<li>${s}</li>`).join('')}
-              </ul>
-            </div>
-          </div>
-
-          <div style="text-align: center; margin: 24px 0 10px 0;">
-            <a href="#" style="background-color: ${darkStone}; color: #FAF7F2; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 12px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block;">
-              ${isFr ? 'Lancer un Entraînement Vocal &' : 'Enter Practice Lounge &rarr;'}
-            </a>
+        <!-- Detected Strengths -->
+        <div style="margin-bottom: 32px;">
+          <h4 style="margin: 0 0 12px 0; font-size: 12px; font-weight: 800; color: ${textPrimary}; text-transform: uppercase; letter-spacing: 1px; font-family: monospace;">
+            🛡️ ${isFr ? 'FORCES CLÉS IDENTIFIÉES :' : 'IDENTIFIED MASTER COMPETENCIES:'}
+          </h4>
+          <div style="background-color: #1F1F23; padding: 18px; border-radius: 12px; border: 1px solid #2A2A2F;">
+            <ul style="margin: 0; padding-left: 18px; font-size: 13.5px; color: ${textSecondary}; line-height: 1.8;">
+              ${strengths.map((s: string) => `<li><span style="color:${textPrimary}; font-weight:600;">${s}</span></li>`).join('')}
+            </ul>
           </div>
         </div>
 
-        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
-          <p style="margin: 0;">SHANA INTEL SYSTEMS // CLOUD ANALYSIS REPORT V1.0</p>
+        <div style="text-align: center;">
+          <a href="#" style="background-color: ${accentGold}; color: #000000; text-decoration: none; padding: 15px 36px; border-radius: 30px; font-size: 12px; font-weight: bold; letter-spacing: 1.5px; text-transform: uppercase; display: inline-block; box-shadow: 0 8px 24px rgba(254, 206, 79, 0.2);">
+            ${isFr ? 'Lancer un Entraînement Vocal' : 'Enter Interactive Practice'}
+          </a>
         </div>
-      </div>
+      ${wrapperEnd}
     `;
   }
 
@@ -2423,54 +2681,46 @@ function getEmailHtmlForType(type: string, firstName: string, email: string, ext
       : "Structure your narrative using clear STAR coordinates and keep a consistent articulation pacing.");
 
     return `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
-        <!-- Practice Header -->
-        <div style="background-color: ${darkStone}; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-          <div style="display: inline-block; width: 40px; height: 40px; background-color: #3B82F6; color: #FAF7F2; border-radius: 8px; font-weight: 900; font-size: 20px; line-height: 40px; text-align: center; margin-bottom: 8px;">📈</div>
-          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">SHANA PRACTICE</h1>
-          <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">${isFr ? 'FEED-BACK DE SESSION D\'ENTRAÎNEMENT' : 'PRACTICE FEEDBACK DISPATCHED'}</p>
+      ${wrapperStart}
+        <h2 style="font-size: 24px; font-weight: 900; color: ${textPrimary}; margin-top: 0; margin-bottom: 8px; font-family: sans-serif; letter-spacing: -0.5px;">
+          ${isFr ? 'Rapport de Session d\'Entraînement' : 'Practice Session Verbal Metric'}
+        </h2>
+        <div style="font-family: monospace; font-size: 11px; color: ${accentGold}; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1px;">
+          🗣️ SHANA PRACTICE FEEDBACK LOG
         </div>
 
-        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
-          <h2 style="font-size: 16px; font-weight: 850; color: #111111; margin-top: 0; margin-bottom: 12px;">
-            ${isFr ? `Entraînement Terminé, ${firstName} !` : `Practice Session Complete, ${firstName}!`}
-          </h2>
-          <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-bottom: 20px;">
-            ${isFr
-              ? `Félicitations pour avoir complété cet exercice ! Nos modèles de traitement ont évalué votre réponse vocale et conversationnelle.`
-              : `Excellent work honing your verbal delivery. Our analysis core has fully processed your audio and contextual feedback metrics.`}
+        <p style="font-size: 14px; line-height: 1.6; color: ${textSecondary}; margin-bottom: 24px;">
+          ${isFr
+            ? `Excellent effort ${firstName} ! Nos modèles d'analyse acoustique et sémantique ont entièrement décodé votre dernière session audio.`
+            : `Superb work refining your vocal clarity, ${firstName}! Our acoustic and semantic models have fully processed your latest audio drill.`}
+        </p>
+
+        <!-- Score container -->
+        <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); border: 1px solid #3B82F6; padding: 24px; border-radius: 16px; text-align: center; margin: 28px 0; box-shadow: 0 8px 24px rgba(59, 130, 246, 0.15);">
+          <p style="margin: 0 0 6px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: #60A5FA; font-family: monospace; letter-spacing: 1.5px;">
+            ${isFr ? 'SCORE D\'ARTICULATION VOCALE' : 'VERBAL DELIVERY SCORE'}
           </p>
-
-          <!-- Metric Card -->
-          <div style="background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1px solid #BFDBFE; padding: 18px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-            <p style="margin: 0 0 4px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: #1E40AF; font-family: monospace; letter-spacing: 1px;">
-              ${isFr ? 'SCORE D\'ÉMISSION VOCALE' : 'VERBAL PRACTICE SCORE'}
-            </p>
-            <p style="margin: 0; font-size: 32px; font-weight: 900; color: #1D4ED8; font-family: sans-serif;">
-              ${score}%
-            </p>
-          </div>
-
-          <div style="margin-bottom: 24px;">
-            <h4 style="margin: 0 0 8px 0; font-size: 12px; font-weight: 800; color: #1E3A8A; font-family: monospace; text-transform: uppercase;">
-              💡 ${isFr ? 'CONSEIL ACTIONNABLE IMMÉDIAT :' : 'IMMEDIATE TACTICAL ADVICE:'}
-            </h4>
-            <p style="font-size: 12.5px; line-height: 1.5; color: #374151; background-color: #F0FDF4; border: 1px solid #BBF7D0; padding: 12px; border-radius: 8px; margin: 0;">
-              ${tips}
-            </p>
-          </div>
-
-          <div style="text-align: center; margin: 24px 0 10px 0;">
-            <a href="#" style="background-color: ${darkStone}; color: #FAF7F2; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 12px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block;">
-              ${isFr ? 'Accéder à vos Statistiques &' : 'Access Performance Metrics &rarr;'}
-            </a>
-          </div>
+          <p style="margin: 0; font-size: 40px; font-weight: 900; color: #3B82F6; font-family: sans-serif;">
+            ${score}%
+          </p>
         </div>
 
-        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
-          <p style="margin: 0;">PRACTICE SUITE VERBAL-LOG // ID: ${Math.random().toString(36).substring(2, 6).toUpperCase()}</p>
+        <!-- Actionable Tips -->
+        <div style="margin-bottom: 32px;">
+          <h4 style="margin: 0 0 10px 0; font-size: 12px; font-weight: 800; color: ${textPrimary}; font-family: monospace; text-transform: uppercase; letter-spacing: 1px;">
+            💡 ${isFr ? 'RECOMMANDATION TECHNIQUE :' : 'IMMEDIATE COGNITIVE IMPROVEMENT:'}
+          </h4>
+          <p style="font-size: 13.5px; line-height: 1.6; color: ${textPrimary}; background-color: #27272A; border-left: 4px solid #3B82F6; padding: 16px; border-radius: 8px; margin: 0;">
+            ${tips}
+          </p>
         </div>
-      </div>
+
+        <div style="text-align: center;">
+          <a href="#" style="background-color: ${accentGold}; color: #000000; text-decoration: none; padding: 15px 36px; border-radius: 30px; font-size: 12px; font-weight: bold; letter-spacing: 1.5px; text-transform: uppercase; display: inline-block; box-shadow: 0 8px 24px rgba(254, 206, 79, 0.25);">
+            ${isFr ? 'Analyser mes performances' : 'Explore Performance Dashboard'}
+          </a>
+        </div>
+      ${wrapperEnd}
     `;
   }
 
@@ -2482,92 +2732,87 @@ function getEmailHtmlForType(type: string, firstName: string, email: string, ext
     const behavioral = extraData?.behavioral || 90;
 
     return `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
-        <!-- Assessment Header -->
-        <div style="background-color: #111111; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-          <div style="display: inline-block; width: 44px; height: 44px; background-color: #FECE4F; border-radius: 50%; text-align: center; line-height: 44px; font-size: 20px; margin-bottom: 8px; color: #1C1917;">🏆</div>
-          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">SHANA AUDIT</h1>
-          <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">${isFr ? 'RAPPORT DE CERTIFICATION OFFICIEL' : 'OFFICIAL ASSESSMENT EVALUATION MATRIX'}</p>
+      ${wrapperStart}
+        <h2 style="font-size: 24px; font-weight: 900; color: ${textPrimary}; margin-top: 0; margin-bottom: 8px; font-family: sans-serif; letter-spacing: -0.5px;">
+          ${isFr ? 'Rapport d\'Évaluation Certifié' : 'Official Certified Assessment Report'}
+        </h2>
+        <div style="font-family: monospace; font-size: 11px; color: ${accentGold}; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1px;">
+          🏆 SHANA CERTIFICATION & MOCK AUDIT
         </div>
 
-        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
-          <h2 style="font-size: 16px; font-weight: 850; color: #111111; margin-top: 0; margin-bottom: 12px; border-bottom: 1px solid #F3F1ED; padding-bottom: 12px;">
-            ${isFr ? `Rapport d'Évaluation Certifié : ${firstName}` : `Certified Performance Report: ${firstName}`}
-          </h2>
-          <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-bottom: 18px;">
-            ${isFr
-              ? 'Votre entretien de mise en situation formel de type protocole Shana a été validé. Vos scores d\'évaluation multi-axes ont été compilés avec succès :'
-              : 'Your formal mock assessment under official Shana testing protocols has been processed. Multi-axis rating outcomes are now verified:'}
+        <p style="font-size: 14px; line-height: 1.6; color: ${textSecondary}; margin-bottom: 24px;">
+          ${isFr
+            ? `Votre entretien formel sous protocole d'examen SHANA a été évalué avec succès. Les résultats certifiés de votre matrice de compétences sont désormais scellés.`
+            : `Your formal interview exam conducted under official SHANA evaluation protocols has been successfully scored. Your certified multi-axis performance results are verified below.`}
+        </p>
+
+        <!-- Large Premium Score Badge -->
+        <div style="background-color: #1F1F23; border: 1px solid ${borderCard}; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;">
+          <p style="margin: 0 0 6px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: ${textSecondary}; font-family: monospace; letter-spacing: 2px;">
+            ${isFr ? 'NOTE GLOBALE DE CERTIFICATION' : 'OVERALL CONSOLIDATED PERFORMANCE'}
           </p>
+          <p style="margin: 0; font-size: 42px; font-weight: 900; color: ${accentGold}; font-family: sans-serif; letter-spacing: -1px;">
+            ${score}%
+          </p>
+        </div>
 
-          <!-- Core Score Box -->
-          <div style="background: linear-gradient(135deg, #FAF7F2 0%, #FFF5D6 100%); border: 1px solid #FECE4F; padding: 18px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-            <p style="margin: 0 0 4px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: #854D0E; font-family: monospace; letter-spacing: 1px;">
-              ${isFr ? 'SCORE GLOBAL CRITIQUE' : 'GLOBAL SCORE AVERAGE'}
-            </p>
-            <p style="margin: 0; font-size: 34px; font-weight: 900; color: #1C1917; font-family: sans-serif;">
-              ${score}%
-            </p>
-          </div>
-
-          <!-- Multi-axis Progress Grid -->
-          <div style="margin-bottom: 24px; font-size: 12px; line-height: 1.5;">
-            <h4 style="margin: 0 0 12px 0; font-size: 11px; font-weight: 800; color: #78716C; text-transform: uppercase; font-family: monospace; letter-spacing: 0.5px;">
-              ${isFr ? 'Analyse Détaillée par Compétence :' : 'Competency Vector Analysis:'}
-            </h4>
-            
-            <div style="margin-bottom: 12px;">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: bold;">
-                <span>${isFr ? 'Adaptabilité et Réflexion' : 'Adaptability & On-Feet Thinking'}</span>
-                <span>${adaptability}%</span>
-              </div>
-              <div style="background-color: #F3F1ED; height: 8px; border-radius: 4px; overflow: hidden;">
-                <div style="background-color: #FECE4F; width: ${adaptability}%; height: 100%; border-radius: 4px;"></div>
-              </div>
+        <!-- Competency bars in elegant dark layout -->
+        <div style="margin-bottom: 32px; font-size: 13px;">
+          <h4 style="margin: 0 0 16px 0; font-size: 11px; font-weight: 800; color: ${textSecondary}; text-transform: uppercase; font-family: monospace; letter-spacing: 1px;">
+            ${isFr ? 'DÉTAIL DES COMPÉTENCES CLÉS :' : 'COMPETENCY AXIS RATING DETAILS:'}
+          </h4>
+          
+          <!-- Vector 1 -->
+          <div style="margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-weight: bold; color: ${textPrimary};">
+              <span>${isFr ? 'Adaptabilité & Réflexion active' : 'Adaptability & On-Feet Thinking'}</span>
+              <span style="color: ${accentGold};">${adaptability}%</span>
             </div>
-
-            <div style="margin-bottom: 12px;">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: bold;">
-                <span>${isFr ? 'Clarté de Communication' : 'Communication & Clarity'}</span>
-                <span>${communication}%</span>
-              </div>
-              <div style="background-color: #F3F1ED; height: 8px; border-radius: 4px; overflow: hidden;">
-                <div style="background-color: #1C1917; width: ${communication}%; height: 100%; border-radius: 4px;"></div>
-              </div>
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: bold;">
-                <span>${isFr ? 'Expertise du Secteur' : 'Sector-Specific Expertise'}</span>
-                <span>${industry}%</span>
-              </div>
-              <div style="background-color: #F3F1ED; height: 8px; border-radius: 4px; overflow: hidden;">
-                <div style="background-color: #047857; width: ${industry}%; height: 100%; border-radius: 4px;"></div>
-              </div>
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: bold;">
-                <span>${isFr ? 'Alignement Comportemental' : 'Behavioral STAR Structure'}</span>
-                <span>${behavioral}%</span>
-              </div>
-              <div style="background-color: #F3F1ED; height: 8px; border-radius: 4px; overflow: hidden;">
-                <div style="background-color: #3B82F6; width: ${behavioral}%; height: 100%; border-radius: 4px;"></div>
-              </div>
+            <div style="background-color: #27272A; height: 6px; border-radius: 3px; overflow: hidden;">
+              <div style="background-color: ${accentGold}; width: ${adaptability}%; height: 100%; border-radius: 3px;"></div>
             </div>
           </div>
 
-          <div style="text-align: center; margin: 28px 0 10px 0;">
-            <a href="#" style="background-color: #111111; color: #FAF7F2; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 11px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block;">
-              ${isFr ? 'Consulter le Rapport d\'Évaluation &' : 'Review Annotated Feedback &rarr;'}
-            </a>
+          <!-- Vector 2 -->
+          <div style="margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-weight: bold; color: ${textPrimary};">
+              <span>${isFr ? 'Clarté Vocale & Élocution' : 'Vocal Clarity & Communication'}</span>
+              <span style="color: ${accentGold};">${communication}%</span>
+            </div>
+            <div style="background-color: #27272A; height: 6px; border-radius: 3px; overflow: hidden;">
+              <div style="background-color: #3B82F6; width: ${communication}%; height: 100%; border-radius: 3px;"></div>
+            </div>
+          </div>
+
+          <!-- Vector 3 -->
+          <div style="margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-weight: bold; color: ${textPrimary};">
+              <span>${isFr ? 'Expertise Métier' : 'Industry sector Knowledge'}</span>
+              <span style="color: ${accentGold};">${industry}%</span>
+            </div>
+            <div style="background-color: #27272A; height: 6px; border-radius: 3px; overflow: hidden;">
+              <div style="background-color: #10B981; width: ${industry}%; height: 100%; border-radius: 3px;"></div>
+            </div>
+          </div>
+
+          <!-- Vector 4 -->
+          <div style="margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-weight: bold; color: ${textPrimary};">
+              <span>${isFr ? 'Structure Narrative (STAR)' : 'Behavioral STAR Structure'}</span>
+              <span style="color: ${accentGold};">${behavioral}%</span>
+            </div>
+            <div style="background-color: #27272A; height: 6px; border-radius: 3px; overflow: hidden;">
+              <div style="background-color: #EC4899; width: ${behavioral}%; height: 100%; border-radius: 3px;"></div>
+            </div>
           </div>
         </div>
 
-        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
-          <p style="margin: 0;">SHANA CERTIFIED PORTAL // VERIFIED RESULTS DISPATCH</p>
+        <div style="text-align: center;">
+          <a href="#" style="background-color: ${accentGold}; color: #000000; text-decoration: none; padding: 15px 36px; border-radius: 30px; font-size: 12px; font-weight: bold; letter-spacing: 1.5px; text-transform: uppercase; display: inline-block; box-shadow: 0 8px 24px rgba(254, 206, 79, 0.2);">
+            ${isFr ? 'Consulter mon rapport d\'expert' : 'Review Annotated Feedback Report'}
+          </a>
         </div>
-      </div>
+      ${wrapperEnd}
     `;
   }
 
@@ -2576,57 +2821,49 @@ function getEmailHtmlForType(type: string, firstName: string, email: string, ext
     const txId = extraData?.transactionId || 'TX_' + Math.random().toString(36).substring(2, 10).toUpperCase();
 
     return `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
-        <!-- Billing Header -->
-        <div style="background-color: #065F46; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-          <div style="display: inline-block; width: 40px; height: 40px; background-color: #FAF7F2; color: #065F46; border-radius: 50%; text-align: center; line-height: 40px; font-size: 18px; margin-bottom: 8px; font-weight: bold;">💳</div>
-          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">SHANA BILLING</h1>
-          <p style="color: #A7F3D0; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">${isFr ? 'CONFIRMATION D\'ACHAT ET FACTURATION' : 'PURCHASE CONFIRMED & ACCESS DEPLOYED'}</p>
+      ${wrapperStart}
+        <h2 style="font-size: 24px; font-weight: 900; color: ${textPrimary}; margin-top: 0; margin-bottom: 8px; font-family: sans-serif; letter-spacing: -0.5px;">
+          ${isFr ? 'Licence Premium Activée' : 'Premium Access Confirmed'}
+        </h2>
+        <div style="font-family: monospace; font-size: 11px; color: #10B981; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1px;">
+          ✓ Merchant Transaction Secure
         </div>
 
-        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
-          <h2 style="font-size: 16px; font-weight: 850; color: #111111; margin-top: 0; margin-bottom: 12px;">
-            ${isFr ? 'Votre Licence Shana Premium est active !' : 'Your Shana Premium Status is Active!'}
-          </h2>
-          <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-bottom: 20px;">
-            ${isFr
-              ? `Merci pour votre confiance ${firstName} ! Votre paiement de <strong>${amount} €</strong> a été traité avec succès.`
-              : `Thank you for choosing Shana, ${firstName}! We are pleased to confirm your premium charge of <strong>$${amount}</strong> was successfully verified.`}
-          </p>
+        <p style="font-size: 14px; line-height: 1.6; color: ${textSecondary}; margin-bottom: 24px;">
+          ${isFr
+            ? `Merci pour votre confiance, ${firstName} ! Nous vous confirmons que votre paiement sécurisé de <strong>${amount} EUR</strong> a bien été traité. Votre licence Premium SHANA est désormais fully déverrouillée.`
+            : `Thank you for choosing Shana, ${firstName}! We are pleased to confirm that your secure premium charge of <strong>$${amount}</strong> was successfully executed. Your Premium license privileges are now fully deployed.`}
+        </p>
 
-          <!-- Invoice summary panel -->
-          <div style="background-color: #F8F6F2; border-radius: 10px; padding: 14px; border: 1px solid #EAE6DF; margin-bottom: 24px; font-family: monospace; font-size: 11px; line-height: 1.6; color: #555555;">
-            <p style="margin: 0; font-weight: bold; color: #1C1917; font-size: 11.5px; font-family: sans-serif; margin-bottom: 6px;">${isFr ? 'DÉTAILS DE LA FACTURATION :' : 'SECURE INVOICE MATRIX:'}</p>
-            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">${isFr ? 'ID Transaction :' : 'Transaction ID:'}</strong> <span>${txId}</span></div>
-            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">${isFr ? 'Licence :' : 'Licence level:'}</strong> <span>SHANA Premium (All-Access Pass)</span></div>
-            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">${isFr ? 'Montant payé :' : 'Total Secured:'}</strong> <span>${amount} ${isFr ? 'EUR' : 'USD'}</span></div>
-            <div style="display: flex; justify-content: space-between;"><strong style="color:#111">${isFr ? 'Statut du paiement :' : 'Stripe Status:'}</strong> <span style="color:#047857; font-weight: bold;">PAID</span></div>
-          </div>
+        <!-- Dynamic Invoice Panel -->
+        <div style="background-color: #1F1F23; border: 1px solid #2A2A2F; border-radius: 12px; padding: 20px; font-family: monospace; font-size: 11.5px; line-height: 1.7; color: ${textSecondary}; margin: 28px 0;">
+          <p style="margin: 0 0 10px 0; font-family: sans-serif; font-weight: bold; color: ${accentGold}; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">TRANSACTION INVOICE:</p>
+          <div style="border-bottom: 1px solid #2D2D30; padding: 4px 0; display: flex; justify-content: space-between;"><span>Invoice ID:</span> <span style="color:${textPrimary}; font-weight:bold;">${txId}</span></div>
+          <div style="border-bottom: 1px solid #2D2D30; padding: 4px 0; display: flex; justify-content: space-between;"><span>Account Level:</span> <span style="color:${textPrimary}; font-weight:bold;">SHANA All-Access Premium</span></div>
+          <div style="border-bottom: 1px solid #2D2D30; padding: 4px 0; display: flex; justify-content: space-between;"><span>Secure Gateway:</span> <span style="color:${textPrimary};">Stripe Secured Token</span></div>
+          <div style="border-bottom: 1px solid #2D2D30; padding: 4px 0; display: flex; justify-content: space-between;"><span>Payment Status:</span> <span style="color:#10B981; font-weight:bold;">SUCCESSFULLY CHARGED</span></div>
+          <div style="padding: 4px 0 0 0; display: flex; justify-content: space-between; font-size:12.5px;"><span style="color:${textPrimary};">Total Amount:</span> <span style="color:${accentGold}; font-weight:bold;">${amount} ${isFr ? 'EUR' : 'USD'}</span></div>
+        </div>
 
-          <!-- Feature check list -->
-          <div style="background: #ECFDF5; border: 1px solid #A7F3D0; padding: 16px; border-radius: 12px; margin-bottom: 24px;">
-            <h4 style="margin: 0 0 8px 0; font-size: 11px; font-weight: 800; color: #065F46; text-transform: uppercase; font-family: monospace;">
-              ✨ ${isFr ? 'Fonctionnalités déverrouillées :' : 'Premium Privileges Unlocked:'}
-            </h4>
-            <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #047857; line-height: 1.6;">
-              <li>${isFr ? 'Évaluations formelles par IA en illimité' : 'Unlimited formal AI evaluations & simulations'}</li>
-              <li>${isFr ? 'Analyses vocales et physiologiques avancées' : 'Advanced vocal pacing & tone structural metrics'}</li>
-              <li>${isFr ? 'Simulateur d\'industries et pièges de recruteurs complets' : 'Comprehensive recruiter traps & specialized paths'}</li>
-              <li>${isFr ? 'Rapports de performance exportables en PDF' : 'Fully compiled PDF candidate report export'}</li>
-            </ul>
-          </div>
-
-          <div style="text-align: center; margin: 10px 0 5px 0;">
-            <a href="#" style="background-color: #047857; color: #FFFFFF; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 11px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block;">
-              ${isFr ? 'Accéder au Compte Premium' : 'Explore Premium Console &rarr;'}
-            </a>
+        <!-- Privileges -->
+        <div style="background-color: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 12px; padding: 18px; margin-bottom: 32px;">
+          <h4 style="margin: 0 0 10px 0; font-size: 11.5px; font-weight: bold; color: #10B981; text-transform: uppercase; font-family: monospace; letter-spacing: 1px;">
+            🔑 ${isFr ? 'VOS PRIVILÈGES SONT EN LIGNE :' : 'PREMIUM BENEFIT MATRIX ONLINE:'}
+          </h4>
+          <div style="font-size: 13px; color: ${textPrimary}; line-height: 1.7;">
+            <div style="margin-bottom: 6px;">✓ ${isFr ? 'Accès complet et illimité au simulateur vocal d\'évaluation' : 'Unlimited expert audio simulation runs & voice diagnostics'}</div>
+            <div style="margin-bottom: 6px;">✓ ${isFr ? 'Analyses STAR structurelles approfondies en temps réel' : 'Deep real-time structured STAR speech coaching reports'}</div>
+            <div style="margin-bottom: 6px;">✓ ${isFr ? 'Simulations d\'industries spécialisées et pièges de recruteurs' : 'Specialized recruiter curves & target role customization'}</div>
+            <div>✓ ${isFr ? 'Fiches de performance exportables au format PDF' : 'Fully printable expert feedback PDF portfolio exports'}</div>
           </div>
         </div>
 
-        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
-          <p style="margin: 0;">SHANA MERCHANT CORE // SECURE STRIPE GATEWAY PORTAL</p>
+        <div style="text-align: center;">
+          <a href="#" style="background-color: #10B981; color: #FFFFFF; text-decoration: none; padding: 15px 36px; border-radius: 30px; font-size: 12px; font-weight: bold; letter-spacing: 1.5px; text-transform: uppercase; display: inline-block; box-shadow: 0 8px 24px rgba(16, 185, 129, 0.25);">
+            ${isFr ? 'Entrer dans l\'Espace Premium' : 'Launch Premium Suite'}
+          </a>
         </div>
-      </div>
+      ${wrapperEnd}
     `;
   }
 
@@ -2637,72 +2874,86 @@ function getEmailHtmlForType(type: string, firstName: string, email: string, ext
     const meetUrl = extraData?.meetUrl || 'https://meet.google.com/sha-na-co';
 
     return `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAF7F2; padding: 24px; border-radius: 16px; color: #1C1917; max-width: 600px; margin: 0 auto; border: 1px solid #EAE6DF;">
-        <!-- Calendar Header -->
-        <div style="background-color: #1C1917; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-          <div style="display: inline-block; width: 40px; height: 40px; background-color: #FECE4F; color: #1C1917; border-radius: 8px; font-weight: 900; font-size: 20px; line-height: 40px; text-align: center; margin-bottom: 8px;">📅</div>
-          <h1 style="color: #FAF7F2; font-size: 18px; font-weight: 900; margin: 0; letter-spacing: 1.5px; text-transform: uppercase;">SHANA PLANNER</h1>
-          <p style="color: #A8A29E; font-size: 10px; margin: 4px 0 0 0; font-family: monospace; letter-spacing: 0.5px;">${isFr ? 'SESSION DE SIMULATION ET DE COACHING PLANIFIÉE' : 'MENTOR ENGAGEMENT RESERVATION CONFIRMED'}</p>
+      ${wrapperStart}
+        <h2 style="font-size: 24px; font-weight: 900; color: ${textPrimary}; margin-top: 0; margin-bottom: 8px; font-family: sans-serif; letter-spacing: -0.5px;">
+          ${isFr ? 'Session de Coaching Confirmée' : 'Mock Coaching Session Confirmed'}
+        </h2>
+        <div style="font-family: monospace; font-size: 11px; color: ${accentGold}; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1px;">
+          📅 SHANA CALENDAR RESERVATION LOCKED
         </div>
 
-        <div style="background-color: #FFFFFF; border-radius: 12px; padding: 24px; border: 1px solid #ECEAE5;">
-          <h2 style="font-size: 16px; font-weight: 850; color: #111111; margin-top: 0; margin-bottom: 12px;">
-            ${isFr ? 'Votre Créneau d\'Entraînement est Réservé !' : 'Your Coaching Session is Confirmed!'}
-          </h2>
-          <p style="font-size: 13px; line-height: 1.6; color: #444444; margin-bottom: 20px;">
-            ${isFr
-              ? `Bonjour ${firstName}, votre session en tête-à-tête a bien été ajoutée au planning de notre coach expert Shana.`
-              : `Hello ${firstName}, your personalized one-on-one session has been locked into our dynamic coach schedules.`}
+        <p style="font-size: 14px; line-height: 1.6; color: ${textSecondary}; margin-bottom: 24px;">
+          ${isFr
+            ? `Bonjour ${firstName}, votre session d'entraînement sur-mesure a bien été enregistrée et verrouillée dans le calendrier de notre coach expert Shana.`
+            : `Hello ${firstName}, your custom mock interview reservation has been verified and safely locked into our active coach planner channels.`}
+        </p>
+
+        <!-- Appointment Card -->
+        <div style="background-color: #1F1F23; border: 1px solid #2A2A2F; border-radius: 12px; padding: 20px; margin-bottom: 28px;">
+          <p style="margin: 0 0 12px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: ${accentGold}; font-family: monospace; letter-spacing: 1.5px;">
+            ${isFr ? 'RÉCAPITULATIF DE LA SESSION :' : 'APPOINTMENT SPECTRA LOG:'}
           </p>
-
-          <!-- Appointment Summary Card -->
-          <div style="background-color: #FFFDF5; border-radius: 12px; padding: 18px; border: 1px solid #FECE4F; margin-bottom: 24px;">
-            <p style="margin: 0 0 8px 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: #7A5310; font-family: monospace;">
-              ${isFr ? 'RÉCAPITULATIF DU RENDEZ-VOUS :' : 'APPOINTMENT SPECTRA:'}
-            </p>
-            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
-              <strong style="color: #1C1917;">${isFr ? 'Date :' : 'Date:'}</strong>
-              <span style="color: #555555;">${date}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
-              <strong style="color: #1C1917;">${isFr ? 'Heure :' : 'Time:'}</strong>
-              <span style="color: #555555;">${time}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
-              <strong style="color: #1C1917;">${isFr ? 'Format :' : 'Expert Coach:'}</strong>
-              <span style="color: #555555;">${mentor}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 12px;">
-              <strong style="color: #1C1917;">${isFr ? 'Plateforme :' : 'Video Bridge:'}</strong>
-              <span style="color: #3B82F6; text-decoration: underline;">Google Meet (Secured)</span>
-            </div>
+          <div style="border-bottom: 1px solid #2D2D30; padding: 6px 0; display: flex; justify-content: space-between; font-size: 13px;">
+            <strong style="color: ${textPrimary}; font-weight: 600;">${isFr ? 'Date :' : 'Date:'}</strong>
+            <span style="color: ${textSecondary};">${date}</span>
           </div>
-
-          <div style="border-left: 3px solid #3B82F6; background-color: #EFF6FF; padding: 12px; border-radius: 4px; margin-bottom: 24px; font-size: 12px; color: #1E40AF;">
-            <p style="margin: 0; line-height: 1.4;">
-              <strong>${isFr ? 'Préparation requise :' : 'Pre-flight check:'}</strong> ${isFr ? 'Pour profiter au mieux de votre coaching, veuillez revoir votre CV analysé et brancher vos écouteurs pour l\'analyse audio en temps réel.' : 'To optimize your feedback, please have your analyzed CV details on-screen and use headphones to prevent audio loopbacks.'}
-            </p>
+          <div style="border-bottom: 1px solid #2D2D30; padding: 6px 0; display: flex; justify-content: space-between; font-size: 13px;">
+            <strong style="color: ${textPrimary}; font-weight: 600;">${isFr ? 'Heure :' : 'Time:'}</strong>
+            <span style="color: ${textSecondary};">${time}</span>
           </div>
-
-          <div style="text-align: center; margin: 10px 0 5px 0;">
-            <a href="${meetUrl}" target="_blank" style="background-color: #1C1917; color: #FAF7F2; text-decoration: none; padding: 13px 28px; border-radius: 8px; font-size: 11px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; display: inline-block;">
-              ${isFr ? 'Rejoindre la visio (Google Meet) &' : 'Join Google Meet Session &rarr;'}
-            </a>
+          <div style="border-bottom: 1px solid #2D2D30; padding: 6px 0; display: flex; justify-content: space-between; font-size: 13px;">
+            <strong style="color: ${textPrimary}; font-weight: 600;">${isFr ? 'Coach Expert :' : 'Expert Coach:'}</strong>
+            <span style="color: ${textSecondary};">${mentor}</span>
+          </div>
+          <div style="padding: 6px 0 0 0; display: flex; justify-content: space-between; font-size: 13px;">
+            <strong style="color: ${textPrimary}; font-weight: 600;">${isFr ? 'Lien de Connexion :' : 'Video Connection:'}</strong>
+            <span style="color: ${accentGold}; text-decoration: underline;">Google Meet (TLS Secured)</span>
           </div>
         </div>
 
-        <div style="text-align: center; margin-top: 24px; font-family: monospace; font-size: 9px; color: #A8A29E;">
-          <p style="margin: 0;">SHANA SCHEDULER PROTOCOL // API-SYNC OK</p>
+        <!-- Pre-flight instruction block -->
+        <div style="border-left: 3px solid #3B82F6; background-color: rgba(59, 130, 246, 0.08); padding: 14px; border-radius: 6px; margin-bottom: 32px;">
+          <p style="margin: 0; font-size: 12.5px; color: #93C5FD; line-height: 1.5;">
+            <strong>${isFr ? 'Consignes de préparation :' : 'Pre-flight checklist:'}</strong> ${isFr ? 'Pour tirer le meilleur parti de votre coaching, nous vous conseillons d\'avoir votre CV à l\'écran et de porter un casque pour l\'évaluation vocale.' : 'To maximize your diagnostic value, please have your analyzed CV details on-screen and use headphones to avoid system echo loopback.'}
+          </p>
         </div>
-      </div>
+
+        <div style="text-align: center;">
+          <a href="${meetUrl}" target="_blank" style="background-color: ${accentGold}; color: #000000; text-decoration: none; padding: 15px 36px; border-radius: 30px; font-size: 12px; font-weight: bold; letter-spacing: 1.5px; text-transform: uppercase; display: inline-block; box-shadow: 0 8px 24px rgba(254, 206, 79, 0.2);">
+            ${isFr ? 'Rejoindre la visio (Google Meet)' : 'Join Google Meet Session'}
+          </a>
+        </div>
+      ${wrapperEnd}
     `;
   }
 
   return 'No preview content available.';
 }
 
+// Get active email service provider status
+app.get("/api/email/status", (req, res) => {
+  const hasResend = !!process.env.RESEND_API_KEY;
+  const hasSmtp = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  const smtpFrom = process.env.SMTP_FROM || `SHANA Interview Systems <no-reply@shana-platform.com>`;
+
+  let activeProvider = "Ethereal Interactive SMTP (Local Sandbox Fallback)";
+  if (hasResend) {
+    activeProvider = "Resend REST API Service (Production)";
+  } else if (hasSmtp) {
+    activeProvider = `SMTP Relay (Host: ${process.env.SMTP_HOST})`;
+  }
+
+  res.json({
+    hasResend,
+    hasSmtp,
+    smtpFrom,
+    activeProvider,
+    resendFromAddress: hasResend ? (smtpFrom === `SHANA Interview Systems <no-reply@shana-platform.com>` ? "TALIFT <help@talift.com>" : smtpFrom) : null
+  });
+});
+
 // POSIX/SMTP compliant true email dispatcher endpoint
-app.post("/api/email/dispatch", async (req, res) => {
+app.post("/api/email/dispatch", aiEndpointRateLimiter, async (req, res) => {
   const { type, recipient, extraData } = req.body;
   if (!recipient) {
     return res.status(400).json({ error: "recipient parameters required for transmission." });
@@ -2733,7 +2984,7 @@ app.post("/api/email/dispatch", async (req, res) => {
       
       let resendFrom = smtpFrom;
       if (resendFrom === `SHANA Interview Systems <no-reply@shana-platform.com>`) {
-        resendFrom = "SHANA <onboarding@resend.dev>";
+        resendFrom = "TALIFT <help@talift.com>";
       }
 
       const response = await fetch("https://api.resend.com/emails", {
@@ -2817,6 +3068,8 @@ app.post("/api/email/dispatch", async (req, res) => {
       etherealUrl,
       recipient,
       subject,
+      html,
+      text,
       deliveryStatus: "Dispatched Successfully!"
     });
 

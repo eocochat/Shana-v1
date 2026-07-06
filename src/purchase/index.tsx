@@ -19,9 +19,7 @@ import {
   Play,
   Flame,
   CheckCircle2,
-  Calendar,
-  AlertOctagon,
-  LifeBuoy
+  AlertOctagon
 } from 'lucide-react';
 
 interface PurchaseViewProps {
@@ -39,11 +37,8 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
   const [paymentState, setPaymentState] = useState<PaymentState>('pending');
   const [paymentError, setPaymentError] = useState<string | null>(null);
   
-  // Payment inputs
-  const [cardHolder, setCardHolder] = useState('');
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardExpiry, setCardExpiry] = useState('');
-  const [cardCvc, setCardCvc] = useState('');
+  const [isStripeConfigured, setIsStripeConfigured] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   
   // Recovery transaction
   const [recoverableTx, setRecoverableTx] = useState<any>(null);
@@ -54,6 +49,17 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
   useEffect(() => {
     setMonetization(StorageService.getCandidateMonetization(userId));
     
+    // Check Stripe configuration status from Express backend
+    fetch('/api/commerce/stripe/status')
+      .then(res => res.json())
+      .then(data => {
+        setIsStripeConfigured(!!data.configured);
+      })
+      .catch(err => {
+        console.warn("Failed to retrieve Stripe status, defaulting to simulator:", err);
+        setIsStripeConfigured(false);
+      });
+
     // Check for failed payments to recover
     const faileds = RecoveryManager.getRecoverablePayments(userId);
     if (faileds.length > 0) {
@@ -108,50 +114,34 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
     return () => window.removeEventListener('message', handleStripeMessage);
   }, [selectedProduct, userId, lang]);
 
-  const handleCardNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/\D/g, '').substring(0, 16);
-    const formatted = val.replace(/(\d{4})/g, '$1 ').trim();
-    setCardNumber(formatted);
-  };
+  const handleLaunchStripeCheckout = () => {
+    setCheckoutStep('checkout');
+    setPaymentState('processing');
+    setPaymentError(null);
 
-  const handleExpiryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let val = e.target.value.replace(/\D/g, '').substring(0, 4);
-    if (val.length > 2) {
-      val = val.substring(0, 2) + '/' + val.substring(2);
+    const currentOrigin = window.location.origin;
+    const checkoutUrl = `/api/commerce/stripe/checkout?productId=${encodeURIComponent(selectedProduct.id)}&userId=${encodeURIComponent(userId)}&origin=${encodeURIComponent(currentOrigin)}`;
+
+    const authWindow = window.open(
+      checkoutUrl,
+      'stripe_checkout_popup',
+      'width=600,height=750,status=yes,resizable=yes'
+    );
+
+    if (!authWindow) {
+      alert(lang === 'FR' 
+        ? "Le bloqueur de popups a bloqué l'écran de paiement Stripe. Veuillez autoriser les popups pour ce site." 
+        : "The popup blocker blocked the Stripe payment screen. Please allow popups for this site."
+      );
+      setCheckoutStep('summary');
     }
-    setCardExpiry(val);
   };
 
-  const handleCvcChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setCardCvc(e.target.value.replace(/\D/g, '').substring(0, 4));
-  };
-
-  const triggerProcessPayment = async (forceSimulateFailure = false) => {
+  const handleSimulatePayment = async (forceSimulateFailure = false) => {
     setCheckoutStep('checkout');
     setPaymentError(null);
     
-    if (!forceSimulateFailure) {
-      setPaymentState('processing');
-      const currentOrigin = window.location.origin;
-      const checkoutUrl = `/api/commerce/stripe/checkout?productId=${encodeURIComponent(selectedProduct.id)}&userId=${encodeURIComponent(userId)}&origin=${encodeURIComponent(currentOrigin)}`;
-
-      const authWindow = window.open(
-        checkoutUrl,
-        'stripe_checkout_popup',
-        'width=600,height=750,status=yes,resizable=yes'
-      );
-
-      if (!authWindow) {
-        alert(lang === 'FR' 
-          ? "Le bloqueur de popups a bloqué l'écran de paiement Stripe. Veuillez autoriser les popups pour ce site." 
-          : "The popup blocker blocked the Stripe payment screen. Please allow popups for this site."
-        );
-        setCheckoutStep('summary');
-      }
-      return;
-    }
-
-    const method = 'card_failed_sim';
+    const method = forceSimulateFailure ? 'card_failed_sim' : 'card_simulated_success';
     
     try {
       const updated = await PurchaseFlowService.processPurchase(
@@ -178,8 +168,7 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
       });
       
     } catch (err: any) {
-      console.warn("Payment workflow error:", err);
-      // Stays on checkout screen displaying error details
+      console.warn("Payment workflow simulation error:", err);
     }
   };
 
@@ -189,7 +178,6 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
     setPaymentError(null);
     
     try {
-      // Find the actual product to bind it as selected
       const prod = MONETIZATION_PRODUCTS.find(p => p.id === recoverableTx.productId);
       if (prod) setSelectedProduct(prod);
 
@@ -213,7 +201,7 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-8 font-sans">
+    <div className="w-full max-w-4xl mx-auto space-y-8 font-sans" id="purchase-center-container">
       
       {/* Recovery Banner */}
       <AnimatePresence>
@@ -222,17 +210,18 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="p-4 bg-amber-50 border border-amber-200 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-left shadow-xs"
+            className="p-4 bg-amber-50 border-2 border-stone-950 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-left shadow-[3px_3px_0px_0px_rgba(17,17,17,1)]"
+            id="recoverable-payments-banner"
           >
             <div className="flex gap-3">
-              <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+              <div className="w-10 h-10 rounded-full bg-amber-100 border-2 border-stone-950 text-stone-950 flex items-center justify-center shrink-0 shadow-[1px_1px_0px_0px_rgba(17,17,17,1)]">
                 <AlertOctagon className="w-5 h-5" />
               </div>
               <div className="space-y-0.5">
-                <p className="font-extrabold text-xs uppercase tracking-wider text-amber-900">
+                <p className="font-mono font-black text-[10px] uppercase tracking-wider text-stone-500">
                   {lang === 'FR' ? "PAIEMENT ÉCHOUÉ RETROUVÉ" : "RECOVERABLE TRANSACTION DETECTED"}
                 </p>
-                <p className="text-[11px] text-amber-800 font-semibold leading-relaxed">
+                <p className="text-[11px] text-stone-850 font-bold leading-relaxed">
                   {lang === 'FR' 
                     ? `Votre précédente tentative d'achat du "${MONETIZATION_PRODUCTS.find(p => p.id === recoverableTx.productId)?.nameFR}" a échoué. Reprenez là où vous vous étiez arrêté.` 
                     : `Your last checkout attempt for "${MONETIZATION_PRODUCTS.find(p => p.id === recoverableTx.productId)?.nameEN}" was interrupted. Resume now with zero friction.`}
@@ -243,14 +232,14 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
             <div className="flex gap-2 w-full md:w-auto shrink-0">
               <button
                 onClick={() => RecoveryManager.dismissRecovery(userId, recoverableTx.id)}
-                className="px-4 py-2 border border-amber-200 text-amber-700 hover:bg-amber-100 font-bold text-xs uppercase rounded-xl transition-colors cursor-pointer flex-1 md:flex-initial"
+                className="px-4 py-2 border-2 border-stone-950 text-stone-800 hover:bg-stone-50 font-bold text-xs uppercase rounded-xl transition-colors cursor-pointer flex-1 md:flex-initial"
               >
                 {lang === 'FR' ? "Ignorer" : "Dismiss"}
               </button>
               
               <button
                 onClick={triggerRecoveryRetry}
-                className="px-5 py-2 bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs uppercase rounded-xl transition-colors cursor-pointer flex-1 md:flex-initial flex items-center justify-center gap-1.5 shadow-sm"
+                className="px-5 py-2 bg-[#EDC154] hover:bg-[#ffdf7e] border-2 border-stone-950 text-stone-950 font-black text-xs uppercase rounded-xl transition-all cursor-pointer flex-1 md:flex-initial flex items-center justify-center gap-1.5 shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] active:translate-x-[0.5px] active:translate-y-[0.5px] active:shadow-[0.5px_0.5px_0px_0px_rgba(17,17,17,1)]"
               >
                 <RefreshCcw className="w-3.5 h-3.5" />
                 <span>{lang === 'FR' ? "Réessayer" : "Retry Payment"}</span>
@@ -270,15 +259,16 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -15 }}
             className="space-y-6"
+            id="purchase-selection-step"
           >
             <div className="text-left space-y-2">
-              <h2 className="text-2xl font-black text-[#1A2B3C] tracking-tight">
+              <h2 className="text-2xl font-black text-stone-950 uppercase tracking-tight">
                 {lang === 'FR' ? "Propulsez votre préparation" : "Elevate Your Interview Readiness"}
               </h2>
               <p className="text-xs text-stone-500 font-semibold">
                 {lang === 'FR' 
-                  ? "Sélectionnez le pack adapté à vos objectifs d'entretien professionnels." 
-                  : "Select the optimized preparation block aligned with your professional career milestones."}
+                  ? "Sélectionnez le pack ou l'abonnement adapté à vos objectifs d'entretien professionnels." 
+                  : "Select the premium preparation pack or subscription aligned with your professional career milestones."}
               </p>
             </div>
 
@@ -292,46 +282,46 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
                   <div
                     key={prod.id}
                     onClick={() => setSelectedProduct(prod)}
-                    className={`relative rounded-[32px] p-6 border text-left transition-all cursor-pointer flex flex-col justify-between h-[360px] select-none ${
+                    className={`relative rounded-[32px] p-6 border-[3px] text-left transition-all cursor-pointer flex flex-col justify-between h-[380px] select-none ${
                       isSelected 
-                        ? 'border-indigo-600 bg-white ring-2 ring-indigo-600 shadow-lg scale-[1.02]' 
-                        : 'border-neutral-200 bg-white hover:border-indigo-300 hover:shadow-xs'
+                        ? 'border-stone-950 bg-stone-50/50 shadow-[5px_5px_0px_0px_rgba(17,17,17,1)] scale-[1.01]' 
+                        : 'border-stone-950 bg-white hover:bg-stone-50/20 shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] hover:shadow-[5px_5px_0px_0px_rgba(17,17,17,1)]'
                     }`}
                   >
                     {isUltra && (
-                      <span className="absolute -top-3 left-6 px-3 py-1 bg-indigo-600 text-white text-[9px] font-extrabold uppercase rounded-full tracking-wider shadow-sm flex items-center gap-1">
-                        <Sparkles className="w-3 h-3 animate-pulse" />
+                      <span className="absolute -top-3 left-6 px-3 py-1 bg-[#FF7E5F] border-2 border-stone-950 text-stone-950 text-[8px] font-black uppercase rounded-full tracking-widest shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 animate-pulse text-stone-950" />
                         <span>POPULAR / RECOMMENDED</span>
                       </span>
                     )}
 
-                    <div className="space-y-4">
+                    <div className="space-y-3.5">
                       <div>
-                        <h4 className="text-lg font-black text-[#1A2B3C] tracking-tight">
+                        <h4 className="text-base font-black text-stone-950 uppercase tracking-tight">
                           {lang === 'FR' ? prod.nameFR : prod.nameEN}
                         </h4>
-                        <p className="text-[10px] uppercase font-bold tracking-widest text-indigo-600 mt-0.5">
+                        <p className="text-[9px] uppercase font-black tracking-widest text-stone-400 font-mono mt-0.5">
                           {isUltra ? (lang === 'FR' ? "MENSUELE" : "MONTHLY SUBSCRIPTION") : (lang === 'FR' ? "RECHARGE UNIQUE" : "ONE-TIME RECHARGE")}
                         </p>
                       </div>
 
-                      <p className="text-xs text-stone-500 font-semibold leading-relaxed">
+                      <p className="text-xs text-stone-600 font-bold leading-relaxed">
                         {lang === 'FR' ? prod.descriptionFR : prod.descriptionEN}
                       </p>
 
-                      <ul className="space-y-2 pt-2">
+                      <ul className="space-y-1.5 pt-1 border-t border-stone-200">
                         {(lang === 'FR' ? prod.featuresFR : prod.featuresEN).map((feat, idx) => (
-                          <li key={idx} className="flex items-center gap-2 text-[11px] text-stone-700 font-bold leading-none">
-                            <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <li key={idx} className="flex items-center gap-2 text-[11px] text-stone-850 font-bold leading-tight">
+                            <Check className="w-4 h-4 text-emerald-600 shrink-0 stroke-[3]" />
                             <span>{feat}</span>
                           </li>
                         ))}
                       </ul>
                     </div>
 
-                    <div className="pt-4 border-t border-stone-100 flex justify-between items-baseline">
-                      <span className="text-2xl font-black text-[#1A2B3C]">{prod.price.toFixed(2)}€</span>
-                      <span className={`text-[11px] font-bold uppercase transition-colors ${isSelected ? 'text-indigo-600' : 'text-stone-400'}`}>
+                    <div className="pt-3 border-t-2 border-stone-950 flex justify-between items-baseline">
+                      <span className="text-2xl font-black text-stone-950 font-mono">{prod.price.toFixed(2)}€</span>
+                      <span className={`text-[10px] font-mono font-black uppercase tracking-widest transition-colors ${isSelected ? 'text-[#FF7E5F]' : 'text-stone-400'}`}>
                         {isSelected ? (lang === 'FR' ? "Sélectionné ✓" : "Selected ✓") : (lang === 'FR' ? "Choisir" : "Choose")}
                       </span>
                     </div>
@@ -341,12 +331,12 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
             </div>
 
             {/* Top-ups Section */}
-            <div className="bg-stone-50 border border-stone-150 rounded-[32px] p-6 space-y-4 text-left">
+            <div className="bg-stone-50 border-2 border-stone-950 rounded-[32px] p-6 space-y-4 text-left shadow-[4px_4px_0px_0px_rgba(17,17,17,1)]">
               <div>
-                <h4 className="text-sm font-black text-[#1A2B3C]">
+                <h4 className="text-sm font-black text-stone-950 uppercase tracking-tight">
                   {lang === 'FR' ? "Besoin de sessions supplémentaires uniquement ?" : "Looking for micro sessions only?"}
                 </h4>
-                <p className="text-[11px] text-stone-500 font-semibold">
+                <p className="text-[11px] text-stone-500 font-bold">
                   {lang === 'FR' ? "Rechargez votre console à l'unité en fonction de vos besoins immédiats." : "Top-up your active candidate sandbox balance on-demand with no expiration constraints."}
                 </p>
               </div>
@@ -358,18 +348,18 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
                     <div
                       key={prod.id}
                       onClick={() => setSelectedProduct(prod)}
-                      className={`p-4 rounded-2xl border text-left flex justify-between items-center cursor-pointer transition-all ${
+                      className={`p-4 rounded-2xl border-2 border-stone-950 text-left flex justify-between items-center cursor-pointer transition-all ${
                         isSelected 
-                          ? 'border-indigo-600 bg-white ring-1 ring-indigo-600 shadow-sm' 
-                          : 'border-neutral-200 bg-white hover:border-indigo-200'
+                          ? 'bg-[#A7F3D0]/20 border-stone-950 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]' 
+                          : 'bg-white hover:bg-stone-50 border-stone-950 shadow-[1px_1px_0px_0px_rgba(17,17,17,1)] hover:shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]'
                       }`}
                     >
                       <div className="space-y-0.5">
-                        <p className="text-xs font-black text-[#1A2B3C]">{lang === 'FR' ? prod.nameFR : prod.nameEN}</p>
-                        <p className="text-[10px] text-stone-500 font-semibold">{prod.price.toFixed(2)}€</p>
+                        <p className="text-xs font-black text-stone-950 uppercase tracking-tight">{lang === 'FR' ? prod.nameFR : prod.nameEN}</p>
+                        <p className="text-[10px] text-stone-500 font-bold font-mono">{prod.price.toFixed(2)}€</p>
                       </div>
-                      <span className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${isSelected ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-stone-300'}`}>
-                        {isSelected && <span className="w-2 h-2 bg-indigo-600 rounded-full" />}
+                      <span className={`w-4 h-4 rounded-full border-2 border-stone-950 flex items-center justify-center shrink-0 ${isSelected ? 'bg-[#A7F3D0]' : 'bg-white'}`}>
+                        {isSelected && <span className="w-1.5 h-1.5 bg-stone-950 rounded-full" />}
                       </span>
                     </div>
                   );
@@ -381,7 +371,8 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
             <div className="flex justify-end pt-4">
               <button
                 onClick={() => setCheckoutStep('summary')}
-                className="px-6 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs uppercase tracking-widest rounded-2xl shadow-md transition-all active:scale-95 cursor-pointer flex items-center gap-1.5"
+                className="px-6 py-4 bg-[#EDC154] hover:bg-[#ffdf7e] text-stone-950 border-2 border-stone-950 font-black text-xs uppercase tracking-widest rounded-2xl shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] transition-all active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] cursor-pointer flex items-center gap-1.5"
+                id="to-summary-btn"
               >
                 <span>{lang === 'FR' ? "Récapitulatif de la commande" : "Review Summary"}</span>
                 <ChevronRight className="w-4 h-4" />
@@ -390,54 +381,56 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
           </motion.div>
         )}
 
-        {/* STEP 2: SUMMARY & BILLING SCHEMAS */}
+        {/* STEP 2: SUMMARY & SECURE BILLING GATEWAY */}
         {checkoutStep === 'summary' && (
           <motion.div
             key="summary"
             initial={{ opacity: 0, x: 15 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -15 }}
-            className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left"
+            className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left font-sans"
+            id="purchase-summary-step"
           >
             {/* Left side: Benefit Checklist */}
-            <div className="md:col-span-2 space-y-6">
-              <div className="space-y-1.5">
+            <div className="md:col-span-2 space-y-5">
+              <div className="space-y-1">
                 <button
                   onClick={() => setCheckoutStep('selection')}
-                  className="text-indigo-600 hover:underline font-bold text-xs flex items-center gap-1 cursor-pointer"
+                  className="text-stone-600 hover:text-stone-950 hover:underline font-black text-[10px] font-mono uppercase flex items-center gap-1 cursor-pointer"
+                  id="back-to-catalog-btn"
                 >
-                  ← {lang === 'FR' ? "Retour aux produits" : "Back to catalog"}
+                  ← {lang === 'FR' ? "Retour au catalogue" : "Back to catalog"}
                 </button>
-                <h3 className="text-2xl font-black text-[#1A2B3C] tracking-tight">
+                <h3 className="text-2xl font-black text-stone-950 uppercase tracking-tight">
                   {lang === 'FR' ? "Détails de votre commande" : "Your Purchase Overview"}
                 </h3>
               </div>
 
               {/* High-fidelity summary card */}
-              <div className="border border-stone-200/80 bg-white rounded-[32px] p-6 space-y-4">
-                <div className="flex justify-between items-start pb-4 border-b border-stone-100">
+              <div className="border-2 border-stone-950 bg-white rounded-[32px] p-6 space-y-4 shadow-[4px_4px_0px_0px_rgba(17,17,17,1)]">
+                <div className="flex justify-between items-start pb-4 border-b-2 border-stone-950">
                   <div className="space-y-1">
-                    <p className="font-extrabold text-[#1A2B3C] text-sm">
+                    <p className="font-black text-stone-950 uppercase tracking-tight text-sm">
                       {lang === 'FR' ? selectedProduct.nameFR : selectedProduct.nameEN}
                     </p>
-                    <p className="text-xs text-stone-500 font-semibold leading-relaxed">
+                    <p className="text-xs text-stone-600 font-bold leading-relaxed">
                       {lang === 'FR' ? selectedProduct.descriptionFR : selectedProduct.descriptionEN}
                     </p>
                   </div>
-                  <span className="text-xl font-black text-[#1A2B3C] shrink-0">
+                  <span className="text-xl font-black text-stone-950 font-mono shrink-0">
                     {selectedProduct.price.toFixed(2)}€
                   </span>
                 </div>
 
                 <div className="space-y-3">
-                  <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-[#9CA3AF]">
-                    {lang === 'FR' ? "AVANTAGES ET LIVRABLES INCLUS" : "WHAT YOU RECEIVE IN REAL-TIME"}
+                  <p className="text-[9px] font-mono font-black uppercase tracking-widest text-stone-500">
+                    {lang === 'FR' ? "AVANTAGES ET LIVRABLES INCLUS" : "WHAT IS INSTANTLY PROVISIONED"}
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {(lang === 'FR' ? selectedProduct.featuresFR : selectedProduct.featuresEN).map((feat, idx) => (
-                      <div key={idx} className="flex gap-2.5 items-start p-3 bg-stone-50 border border-stone-100 rounded-xl">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                        <span className="text-[11px] text-stone-700 font-bold leading-tight">{feat}</span>
+                      <div key={idx} className="flex gap-2.5 items-start p-3 bg-stone-50 border-2 border-stone-950 rounded-xl shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)]">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5 stroke-[3]" />
+                        <span className="text-[11px] text-stone-800 font-bold leading-tight">{feat}</span>
                       </div>
                     ))}
                   </div>
@@ -445,109 +438,95 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
               </div>
 
               {/* Secure lock information */}
-              <div className="p-4 bg-emerald-50/40 border border-emerald-100 rounded-2xl flex gap-3">
+              <div className="p-4 bg-emerald-50/30 border-2 border-stone-950 rounded-2xl flex gap-3 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
                 <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
                 <div className="space-y-0.5">
-                  <p className="text-xs font-bold text-emerald-950">
-                    {lang === 'FR' ? "Paiement 100% Chiffré et Sécurisé" : "Military-grade 256-bit Secure Layer"}
+                  <p className="text-xs font-black text-stone-950 uppercase font-mono tracking-wider">
+                    {lang === 'FR' ? "Paiement 100% Chiffré et Sécurisé" : "Military-grade SSL Secure Layer"}
                   </p>
-                  <p className="text-[10.5px] text-emerald-800 leading-relaxed font-semibold">
+                  <p className="text-[10.5px] text-stone-600 leading-relaxed font-bold">
                     {lang === 'FR'
-                      ? "Vos informations bancaires ne transitent jamais sur nos serveurs. Transactions sécurisées via protocole SSL standard."
-                      : "We employ end-to-end encrypted tunnels. Your private card tokens are fully protected and never persist in clean state."}
+                      ? "Vos informations bancaires ne transitent jamais sur nos serveurs. Transactions sécurisées et chiffrées en direct via la plateforme officielle de Stripe."
+                      : "We employ end-to-end encrypted tunnels. Your private card details go directly to Stripe and never touch our servers."}
                   </p>
                 </div>
               </div>
             </div>
 
             {/* Right side: Pay Panel */}
-            <div className="space-y-6">
-              <div className="bg-stone-900 text-white rounded-[32px] p-6 space-y-6">
-                <h4 className="font-mono text-[10px] uppercase tracking-wider font-extrabold text-stone-400">
-                  {lang === 'FR' ? "SÉLECTIONNER LE MOYEN DE PAIEMENT" : "SECURE CHECKOUT INPUT"}
+            <div className="space-y-5">
+              <div className="bg-white border-2 border-stone-950 rounded-[32px] p-6 space-y-5 shadow-[4px_4px_0px_0px_rgba(17,17,17,1)]">
+                <h4 className="font-mono text-[9px] uppercase tracking-widest font-black text-stone-400">
+                  {lang === 'FR' ? "MÉTHODE DE PAIEMENT" : "SECURE BILLING OUTLET"}
                 </h4>
 
-                <form className="space-y-4 text-xs" onSubmit={(e) => { e.preventDefault(); triggerProcessPayment(false); }}>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-stone-400 block">
-                      {lang === 'FR' ? "Nom complet sur la carte" : "CARDHOLDER FULL NAME"}
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={cardHolder}
-                      onChange={(e) => setCardHolder(e.target.value)}
-                      placeholder="Marie Dubois"
-                      className="w-full bg-stone-800 border border-stone-700 rounded-xl px-3.5 py-3 text-xs outline-none text-white placeholder-stone-500 font-medium font-sans"
-                    />
-                  </div>
+                <div className="space-y-4">
+                  {isStripeConfigured ? (
+                    <div className="space-y-3">
+                      <div className="p-3 bg-[#A7F3D0]/20 border-2 border-stone-950 rounded-xl flex items-center gap-2.5">
+                        <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping" />
+                        <span className="text-[10px] font-mono font-black text-stone-950 uppercase tracking-widest">
+                          {lang === 'FR' ? "Stripe Live Connecté" : "Stripe Gateway Online"}
+                        </span>
+                      </div>
 
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-stone-400 block">
-                      {lang === 'FR' ? "Numéro de carte bancaire" : "CARD NUMBER"}
-                    </label>
-                    <div className="relative">
-                      <CreditCard className="absolute left-3.5 top-3.5 w-4 h-4 text-stone-500" />
-                      <input
-                        type="text"
-                        required
-                        value={cardNumber}
-                        onChange={handleCardNumberChange}
-                        placeholder="4242 4242 4242 4242"
-                        className="w-full bg-stone-800 border border-stone-700 pl-10 pr-3.5 py-3 rounded-xl text-xs outline-none text-white placeholder-stone-500 font-medium font-mono"
-                      />
+                      <p className="text-xs font-semibold text-stone-600 leading-relaxed">
+                        {lang === 'FR'
+                          ? "Cliquez ci-dessous pour ouvrir la page de paiement officielle et ultra-sécurisée hébergée par Stripe."
+                          : "Press pay below to complete your checkout using Stripe's official secure platform."}
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={handleLaunchStripeCheckout}
+                        className="w-full py-4 bg-[#FF7E5F] hover:bg-[#ff9075] border-2 border-stone-950 text-stone-950 font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] cursor-pointer text-center active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] flex items-center justify-center gap-2"
+                        id="pay-stripe-btn"
+                      >
+                        <ShoppingBag className="w-4 h-4 text-stone-950" />
+                        <span>{lang === 'FR' ? "Payer avec Stripe" : "Pay securely with Stripe"}</span>
+                      </button>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Configuration missing notification */}
+                      <div className="p-4 bg-[#EDC154]/15 border-2 border-stone-950 rounded-2xl space-y-2">
+                        <div className="flex gap-2">
+                          <AlertTriangle className="w-4 h-4 text-stone-955 shrink-0 mt-0.5" />
+                          <span className="text-[10px] font-mono font-black uppercase text-stone-950 tracking-wider">
+                            {lang === 'FR' ? "MODE DÉVELOPPEUR ACTIF" : "SANDBOX MODE DETECTED"}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-stone-700 leading-relaxed font-bold">
+                          {lang === 'FR'
+                            ? "STRIPE_SECRET_KEY n'est pas configuré. Vous pouvez tester le comportement de la plateforme en simulant un succès ou un échec ci-dessous."
+                            : "STRIPE_SECRET_KEY missing in environment variables. You can easily test our application flows using the sandbox simulators below."}
+                        </p>
+                      </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-stone-400 block">
-                        {lang === 'FR' ? "Expiration" : "EXP DATE"}
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={cardExpiry}
-                        onChange={handleExpiryChange}
-                        placeholder="MM/YY"
-                        className="w-full bg-stone-800 border border-stone-700 rounded-xl px-3.5 py-3 text-xs outline-none text-white placeholder-stone-500 font-medium font-mono text-center"
-                      />
+                      <div className="flex flex-col gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSimulatePayment(false)}
+                          className="w-full py-3 bg-[#A7F3D0] hover:bg-[#86efac] border-2 border-stone-950 text-stone-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] cursor-pointer text-center active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0px_0px_rgba(17,17,17,1)] flex items-center justify-center gap-1.5"
+                          id="simulate-success-btn"
+                        >
+                          <Check className="w-4 h-4 stroke-[3]" />
+                          <span>{lang === 'FR' ? "Simuler Succès (Test)" : "Simulate Success"}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSimulatePayment(true)}
+                          className="w-full py-3 bg-rose-100 hover:bg-rose-200 border-2 border-stone-950 text-rose-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] cursor-pointer text-center active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0px_0px_rgba(17,17,17,1)] flex items-center justify-center gap-1.5"
+                          id="simulate-failure-btn"
+                        >
+                          <AlertTriangle className="w-4 h-4" />
+                          <span>{lang === 'FR' ? "Simuler Échec (Test)" : "Simulate Failure"}</span>
+                        </button>
+                      </div>
                     </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-stone-400 block">
-                        CVC
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={cardCvc}
-                        onChange={handleCvcChange}
-                        placeholder="123"
-                        className="w-full bg-stone-800 border border-stone-700 rounded-xl px-3.5 py-3 text-xs outline-none text-white placeholder-stone-500 font-medium font-mono text-center"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="pt-2 space-y-3">
-                    <button
-                      type="submit"
-                      className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95 cursor-pointer text-center text-xs"
-                    >
-                      {lang === 'FR' ? "Payer maintenant" : "Pay Securely"}
-                    </button>
-
-                    {/* Simulation recovery trigger trigger */}
-                    <button
-                      type="button"
-                      onClick={() => triggerProcessPayment(true)}
-                      className="w-full py-3 bg-red-950/40 border border-red-900/60 text-red-400 hover:bg-red-950/60 font-bold uppercase tracking-wider rounded-xl transition-all active:scale-95 cursor-pointer text-center text-[10px]"
-                      title={lang === 'FR' ? "Simuler un échec de paiement pour tester la récupération" : "Simulate payment failure to test recovery engine"}
-                    >
-                      ⚠️ {lang === 'FR' ? "Simuler échec (Test)" : "Simulate Failure (Test)"}
-                    </button>
-                  </div>
-                </form>
+                  )}
+                </div>
               </div>
             </div>
           </motion.div>
@@ -561,54 +540,57 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="min-h-[300px] flex flex-col justify-center items-center p-8 text-center space-y-4"
+            id="purchase-checkout-step"
           >
             {paymentState === 'pending' || paymentState === 'processing' ? (
               <>
                 <div className="relative w-16 h-16 flex items-center justify-center">
-                  <div className="absolute inset-0 border-t-2 border-r-2 border-indigo-600 rounded-full animate-spin"></div>
-                  <ShoppingBag className="w-5 h-5 text-indigo-600 animate-pulse" />
+                  <div className="absolute inset-0 border-t-4 border-r-4 border-stone-950 rounded-full animate-spin"></div>
+                  <ShoppingBag className="w-5 h-5 text-stone-950 animate-pulse" />
                 </div>
-                <div className="space-y-1">
-                  <p className="font-extrabold uppercase font-mono tracking-widest text-[10px] text-stone-500">
-                    {paymentState === 'pending' ? (lang === 'FR' ? "CONSTITUTION DU DOSSIER..." : "INITIATING PROTOCOL...") : (lang === 'FR' ? "TRANSMISSION BANCAIRE SSL SÉCURISÉE..." : "SECURE ENCRYPTED CLEARANCE...")}
+                <div className="space-y-1 pt-2">
+                  <p className="font-black uppercase font-mono tracking-widest text-[9px] text-stone-400">
+                    {paymentState === 'pending' ? (lang === 'FR' ? "CONSTITUTION DU DOSSIER..." : "INITIATING SECURE HANDSHAKE...") : (lang === 'FR' ? "TRANSMISSION CRYPTÉE SSL EN COURS..." : "PROCESSING ENCRYPTED CLEARANCE...")}
                   </p>
-                  <h4 className="text-lg font-black text-[#1A2B3C] font-sans">
+                  <h4 className="text-lg font-black text-stone-950 uppercase tracking-tight">
                     {lang === 'FR' ? "Traitement de votre transaction en cours" : "Processing your secure checkout"}
                   </h4>
-                  <p className="text-xs text-stone-400 font-semibold">
-                    {lang === 'FR' ? "Ne fermez pas cette fenêtre et n'actualisez pas." : "Please hold. Do not refresh or exit."}
+                  <p className="text-xs text-stone-500 font-bold">
+                    {lang === 'FR' ? "Ne fermez pas cette fenêtre et n'actualisez pas." : "Please hold. Do not refresh or close this tab."}
                   </p>
                 </div>
               </>
             ) : paymentState === 'failed' ? (
               <div className="space-y-6 max-w-md mx-auto">
-                <div className="w-16 h-16 bg-red-50 border border-red-200 text-red-600 rounded-full flex items-center justify-center mx-auto shadow-inner animate-bounce">
-                  <AlertTriangle className="w-6 h-6" />
+                <div className="w-16 h-16 bg-rose-100 border-2 border-stone-950 text-rose-950 rounded-full flex items-center justify-center mx-auto shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] animate-bounce">
+                  <AlertTriangle className="w-6 h-6 stroke-[2.5]" />
                 </div>
                 <div className="space-y-2">
-                  <span className="font-mono text-[9px] uppercase tracking-widest bg-red-100 border border-red-200 text-red-800 px-2.5 py-1 rounded font-bold">
+                  <span className="font-mono text-[9px] uppercase tracking-widest bg-rose-200 border-2 border-stone-950 text-rose-950 px-2.5 py-1 rounded font-black shadow-[1px_1px_0px_0px_rgba(17,17,17,1)]">
                     {lang === 'FR' ? "PAIEMENT REFUSÉ" : "CHECKOUT FAILED"}
                   </span>
-                  <h3 className="font-sans font-black text-xl text-[#1A2B3C]">
+                  <h3 className="font-black text-xl text-stone-950 uppercase tracking-tight">
                     {lang === 'FR' ? "Transaction non complétée" : "Transaction Declined"}
                   </h3>
-                  <p className="text-stone-500 text-xs leading-relaxed font-semibold">
+                  <p className="text-stone-600 text-xs leading-relaxed font-bold">
                     {paymentError || (lang === 'FR' 
-                      ? "La passerelle de paiement a retourné une erreur. Veuillez revérifier vos informations de carte." 
-                      : "The payment gateway rejected the simulation token. Your active balance was not charged.")}
+                      ? "La simulation de transaction a été rejetée. Votre solde de préparation n'a pas été débité." 
+                      : "The payment gateway rejected the transaction token. Your active balance was not charged.")}
                   </p>
                 </div>
 
                 <div className="flex gap-3 justify-center">
                   <button
                     onClick={() => setCheckoutStep('summary')}
-                    className="px-5 py-3 border border-stone-200 text-[#1A2B3C] hover:bg-neutral-50 font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer"
+                    className="px-5 py-3 border-2 border-stone-950 text-stone-850 hover:bg-stone-50 font-black text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer"
+                    id="retry-edit-btn"
                   >
-                    {lang === 'FR' ? "Modifier les informations" : "Edit Details"}
+                    {lang === 'FR' ? "Retour au récapitulatif" : "Back to summary"}
                   </button>
                   <button
-                    onClick={() => triggerProcessPayment(false)}
-                    className="px-5 py-3 bg-[#1A2B3C] hover:bg-[#2C3E50] text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md cursor-pointer"
+                    onClick={() => handleSimulatePayment(false)}
+                    className="px-5 py-3 bg-stone-950 hover:bg-stone-850 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] cursor-pointer"
+                    id="retry-success-btn"
                   >
                     {lang === 'FR' ? "Réessayer avec carte valide" : "Try Again Safely"}
                   </button>
@@ -625,41 +607,42 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
-            className="bg-white border border-stone-200/80 rounded-[32px] p-8 max-w-xl mx-auto space-y-6 text-center shadow-md relative overflow-hidden"
+            className="bg-white border-2 border-stone-950 rounded-[32px] p-8 max-w-xl mx-auto space-y-6 text-center shadow-[4px_4px_0px_0px_rgba(17,17,17,1)] relative overflow-hidden"
+            id="purchase-success-step"
           >
-            {/* Confetti simulation overlay */}
-            <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 via-indigo-500 to-rose-500" />
+            {/* Confetti decoration top strip */}
+            <div className="absolute top-0 inset-x-0 h-2 bg-gradient-to-r from-[#A7F3D0] via-[#EDC154] to-[#FF7E5F]" />
             
-            <div className="w-16 h-16 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
-              <Check className="w-8 h-8" />
+            <div className="w-16 h-16 bg-[#A7F3D0] border-2 border-stone-950 text-stone-950 rounded-full flex items-center justify-center mx-auto shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
+              <Check className="w-8 h-8 stroke-[3]" />
             </div>
 
             <div className="space-y-2">
-              <span className="font-mono text-[9px] uppercase tracking-widest bg-emerald-100 border border-emerald-200 text-emerald-800 px-2.5 py-1 rounded-md font-bold">
+              <span className="font-mono text-[9px] uppercase tracking-widest bg-[#A7F3D0] border-2 border-stone-950 text-stone-950 px-2.5 py-1 rounded-md font-black shadow-[1px_1px_0px_0px_rgba(17,17,17,1)]">
                 {lang === 'FR' ? "COMMANDE CONFIRMÉE" : "CHECKOUT SECURED & COMPLETE"}
               </span>
-              <h2 className="text-2xl font-black text-[#1A2B3C] tracking-tight">
+              <h2 className="text-2xl font-black text-stone-950 uppercase tracking-tight">
                 {lang === 'FR' ? "Merci pour votre achat !" : "Activation Successful!"}
               </h2>
-              <p className="text-xs text-stone-500 font-semibold max-w-sm mx-auto">
+              <p className="text-xs text-stone-600 font-bold max-w-sm mx-auto">
                 {lang === 'FR' 
-                  ? "Vos crédits ont été alloués à votre compte instantanément. Vous pouvez débuter votre préparation." 
-                  : "We have updated your preparation balances. Check your real-time console below."}
+                  ? "Vos crédits ont été alloués à votre compte instantanément. Vous pouvez débuter votre préparation dès maintenant !" 
+                  : "We have updated your active preparation balances in real time. Inspect your refreshed console below."}
               </p>
             </div>
 
             {/* Balances Display Card */}
             {monetization && (
-              <div className="bg-stone-50 border border-stone-150 p-5 rounded-2xl text-left space-y-3">
-                <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-[#9CA3AF] border-b border-stone-200 pb-1.5">
+              <div className="bg-stone-50 border-2 border-stone-950 p-5 rounded-2xl text-left space-y-3 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
+                <p className="text-[9px] font-mono font-black uppercase tracking-widest text-stone-400 border-b-2 border-stone-200 pb-1.5">
                   {lang === 'FR' ? "Nouveau solde disponible" : "UPDATED CONSOLE BALANCES"}
                 </p>
-                <div className="grid grid-cols-2 gap-4 text-xs">
+                <div className="grid grid-cols-2 gap-4 text-xs font-bold">
                   <div className="space-y-1">
-                    <p className="text-stone-500 font-bold">{lang === 'FR' ? "Entraînements Audio" : "Voice Sessions"}</p>
-                    <p className="text-lg font-black text-[#1A2B3C]">
+                    <p className="text-stone-500 uppercase text-[9px] tracking-wider">{lang === 'FR' ? "Entraînements Audio" : "Voice Sessions"}</p>
+                    <p className="text-lg font-black text-stone-950 font-mono">
                       {monetization.ultraActive ? (
-                        <span className="text-indigo-600">∞ (Ultra Unlimited)</span>
+                        <span className="text-[#FF7E5F]">∞ (Ultra Unlimited)</span>
                       ) : (
                         <span>{monetization.freeAudio + monetization.packAudio + monetization.topUpAudio}</span>
                       )}
@@ -667,10 +650,10 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
                   </div>
 
                   <div className="space-y-1">
-                    <p className="text-stone-500 font-bold">{lang === 'FR' ? "Évaluations Miroir" : "Mirror Evaluations"}</p>
-                    <p className="text-lg font-black text-[#1A2B3C]">
+                    <p className="text-stone-500 uppercase text-[9px] tracking-wider">{lang === 'FR' ? "Évaluations Miroir" : "Mirror Evaluations"}</p>
+                    <p className="text-lg font-black text-stone-950 font-mono">
                       {monetization.ultraActive ? (
-                        <span className="text-indigo-600">∞ (Ultra Unlimited)</span>
+                        <span className="text-[#FF7E5F]">∞ (Ultra Unlimited)</span>
                       ) : (
                         <span>{monetization.freeMirror + monetization.packMirror + monetization.topUpMirror}</span>
                       )}
@@ -680,10 +663,10 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
               </div>
             )}
 
-            {/* Next Recommended Actions (Phase 2 Rule: No Forced Navigation) */}
+            {/* Next Recommended Actions */}
             <div className="space-y-3 pt-2">
-              <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-indigo-600">
-                {lang === 'FR' ? "QUE VOULEZ-VOUS FAIRE ENSUITE ?" : "NEXT RECOMMENDED PREPARATION CHANNELS"}
+              <p className="text-[10px] font-mono font-black uppercase tracking-widest text-[#FF7E5F]">
+                {lang === 'FR' ? "QUE VOULEZ-VOUS FAIRE ENSUITE ?" : "NEXT RECOMMENDED PRACTICE CHANNELS"}
               </p>
               
               <div className="flex flex-col sm:flex-row gap-3">
@@ -692,10 +675,11 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
                     onNavigateTab('train');
                     if (onSuccessClose) onSuccessClose();
                   }}
-                  className="flex-1 py-3 bg-[#1A2B3C] hover:bg-[#2C3E50] text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                  className="flex-1 py-3.5 bg-[#A7F3D0] hover:bg-[#86efac] border-2 border-stone-950 text-stone-950 font-black text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-all active:translate-x-[1px] active:translate-y-[1px] active:shadow-[0.5px_0.5px_0px_0px_rgba(17,17,17,1)] flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]"
+                  id="success-start-train-btn"
                 >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>{lang === 'FR' ? "S'entraîner à haute voix" : "Start Training"}</span>
+                  <Play className="w-3.5 h-3.5 fill-current text-stone-950" />
+                  <span>{lang === 'FR' ? "S'entraîner" : "Start Training"}</span>
                 </button>
 
                 <button
@@ -703,10 +687,11 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
                     onNavigateTab('assessment');
                     if (onSuccessClose) onSuccessClose();
                   }}
-                  className="flex-1 py-3 border border-stone-200 text-[#1A2B3C] hover:bg-neutral-50 font-bold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                  className="flex-1 py-3.5 bg-[#EDC154] hover:bg-[#ffdf7e] border-2 border-stone-950 text-stone-950 font-black text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-all active:translate-x-[1px] active:translate-y-[1px] active:shadow-[0.5px_0.5px_0px_0px_rgba(17,17,17,1)] flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]"
+                  id="success-use-mirror-btn"
                 >
-                  <Flame className="w-3.5 h-3.5 text-[#1A2B3C]" />
-                  <span>{lang === 'FR' ? "Faire Évaluation Miroir" : "Use Mirror"}</span>
+                  <Flame className="w-3.5 h-3.5 text-stone-950" />
+                  <span>{lang === 'FR' ? "Évaluation Miroir" : "Use Mirror"}</span>
                 </button>
 
                 <button
@@ -714,9 +699,10 @@ export default function PurchaseView({ userId, lang, onNavigateTab, onSuccessClo
                     onNavigateTab('home');
                     if (onSuccessClose) onSuccessClose();
                   }}
-                  className="flex-1 py-3 bg-neutral-100 hover:bg-neutral-200 text-stone-700 font-bold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-all active:scale-95"
+                  className="flex-1 py-3.5 bg-white hover:bg-stone-50 border-2 border-stone-950 text-stone-800 font-bold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-all active:translate-x-[1px] active:translate-y-[1px] active:shadow-[0.5px_0.5px_0px_0px_rgba(17,17,17,1)] shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]"
+                  id="success-continue-btn"
                 >
-                  {lang === 'FR' ? "Retour au tableau de bord" : "Continue Practice"}
+                  {lang === 'FR' ? "Retour Accueil" : "Continue Sandbox"}
                 </button>
               </div>
             </div>

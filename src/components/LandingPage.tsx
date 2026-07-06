@@ -24,6 +24,7 @@ import {
   Video
 } from 'lucide-react';
 import Footer from './Footer';
+import ShanaLogo from './ShanaLogo';
 
 interface LandingPageProps {
   onStartOnboarding?: () => void;
@@ -294,14 +295,7 @@ export default function LandingPage({
             className="flex items-center gap-2 cursor-pointer group shrink-0"
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           >
-            <div className="w-10 h-10 rounded-xl bg-stone-950 flex items-center justify-center border-2 border-stone-950 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] group-hover:scale-105 transition-all shrink-0">
-              <span className="font-sans font-black text-xl text-[#EDC154]">S</span>
-            </div>
-            <div className="flex items-center font-sans font-black text-xl sm:text-2xl tracking-tight text-stone-950 uppercase">
-              <span>{t.brand}</span>
-              <span className="text-stone-950 font-black text-2xl sm:text-3xl leading-none ml-0.5">.</span>
-              <Mic className="inline w-4.5 h-4.5 text-stone-950 ml-1.5 shrink-0" />
-            </div>
+            <ShanaLogo size="sm" theme="dark" showSlogan={false} />
           </div>
 
           {/* Center Navigation Menu */}

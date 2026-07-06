@@ -83,6 +83,10 @@ export const StorageService = {
       const clean = u.email ? u.email.trim().toLowerCase() : '';
       let localMutated = false;
       let updatedUser = { ...u };
+      if (clean === 'eocochat@gmail.com' && updatedUser.role !== 'super_admin') {
+        updatedUser.role = 'super_admin';
+        localMutated = true;
+      }
       if (!updatedUser.role) {
         updatedUser.role = 'candidate';
         localMutated = true;
@@ -288,6 +292,10 @@ export const StorageService = {
         method: 'POST',
       }).catch(err => console.warn('[SHANA Storage] Failed to clear server cookie session:', err));
     }
+
+    try {
+      window.dispatchEvent(new Event('shana_progress_update'));
+    } catch (e) {}
   },
 
   getSession(): { user: User; profile: Profile } | null {
@@ -362,6 +370,42 @@ export const StorageService = {
     try {
       window.dispatchEvent(new Event('shana_progress_update'));
     } catch (e) {}
+  },
+
+  purgeUserData(userId: string): void {
+    // 1. Remove from USERS_KEY
+    const users = this.getUsers();
+    safeSetItem(USERS_KEY, users.filter(u => u.id !== userId));
+
+    // 2. Remove from PROFILES_KEY
+    const profiles = safeGetItem<Profile[]>(PROFILES_KEY, []);
+    safeSetItem(PROFILES_KEY, profiles.filter(p => p.userId !== userId));
+
+    // 3. Remove passwords
+    const passwords = safeGetItem<Record<string, string>>(PASSWORDS_KEY, {});
+    delete passwords[userId];
+    safeSetItem(PASSWORDS_KEY, passwords);
+
+    // 4. Remove analysis and blueprints
+    this.deleteAnalysisAndBlueprint(userId);
+
+    // 5. Remove history items & preferences
+    localStorage.removeItem(`shana_history_${userId}`);
+    localStorage.removeItem(`shana_prefs_${userId}`);
+
+    // 6. Delete other keys associated with userId
+    localStorage.removeItem(`shana_scheduled_v2_${userId}`);
+    localStorage.removeItem(`shana_cal_sync_count_${userId}`);
+    localStorage.removeItem(`shana_voice_sessions_${userId}`);
+    localStorage.removeItem(`shana_active_training_${userId}`);
+    localStorage.removeItem(`shana_target_progress_${userId}`);
+    localStorage.removeItem(`shana_draft_profile_completion_${userId}`);
+    localStorage.removeItem(`shana_user_notes_${userId}`);
+
+    // 7. Clear active session in memory & cookies if it's the current user
+    if (_sessionUserId === userId) {
+      this.setSession(null);
+    }
   },
 
   getHistory(userId: string): any[] {

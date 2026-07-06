@@ -43,13 +43,14 @@ export default function ProgressChart({ history, lang }: ProgressChartProps) {
 
   // Data generator
   const data: ChartDataPoint[] = React.useMemo(() => {
+    const hasHistory = history.length > 0;
     const points: ChartDataPoint[] = [
       {
         index: 0,
         label: lang === 'EN' ? "Baseline Calibration" : "Étalonnage de Départ",
-        readiness: 55,
-        fluency: 58,
-        confidence: 50,
+        readiness: hasHistory ? 55 : 0,
+        fluency: hasHistory ? 58 : 0,
+        confidence: hasHistory ? 50 : 0,
         date: lang === 'EN' ? "Calibration" : "Départ",
         isReal: false
       }
@@ -59,9 +60,9 @@ export default function ProgressChart({ history, lang }: ProgressChartProps) {
     const sortedHistory = [...history].reverse();
     
     sortedHistory.forEach((item, idx) => {
-      const fluencyScore = item.score || 70; 
-      const confidenceScore = item.confidenceScore || Math.min(95, Math.ceil(52 + (idx * 6) + (item.score - 55) * 0.25));
-      const readinessScore = item.score;
+      const fluencyScore = item.score || 0; 
+      const confidenceScore = item.confidenceScore || Math.min(95, Math.ceil(0 + (idx * 6) + (item.score || 0) * 0.25));
+      const readinessScore = item.score || 0;
 
       points.push({
         index: points.length,
@@ -77,9 +78,19 @@ export default function ProgressChart({ history, lang }: ProgressChartProps) {
     });
 
     // If only baseline exists, add realistic target future milestone
-    if (sortedHistory.length === 1) {
+    if (sortedHistory.length === 0) {
       points.push({
         index: 1,
+        label: lang === 'EN' ? "Your Progress Tracker" : "Votre Suivi de Progrès",
+        readiness: 0,
+        fluency: 0,
+        confidence: 0,
+        date: lang === 'EN' ? "Goal" : "Objectif",
+        isReal: false
+      });
+    } else if (sortedHistory.length === 1) {
+      points.push({
+        index: points.length,
         label: lang === 'EN' ? "Target Readiness Index" : "Indice d'Éligibilité Cible",
         readiness: 85,
         fluency: 88,

@@ -20,6 +20,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { StorageService } from '../lib/storage';
+import ShanaLogo from './ShanaLogo';
 
 interface OnboardingFlowProps {
   onBackToLanding: () => void;
@@ -462,12 +463,7 @@ export default function OnboardingFlow({ onBackToLanding, onComplete }: Onboardi
 
             {/* Brand Logo and Subtext */}
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 bg-[#111111] text-[#FFFFFF] rounded-lg flex items-center justify-center font-black text-xs shadow-sm">
-                S
-              </div>
-              <span className="font-sans font-extrabold text-sm tracking-tight text-[#111111]">
-                SHANA<span className="text-[#F4C542]">.</span>
-              </span>
+              <ShanaLogo size="sm" theme="dark" showSlogan={false} />
             </div>
 
             {/* Language Toggle */}

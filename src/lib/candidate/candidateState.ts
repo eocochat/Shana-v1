@@ -184,16 +184,14 @@ export function createDefaultCandidateState(userId: string): CandidateState {
     digitalTwin[id] = {
       id,
       name: readableName,
-      score: 50,
-      confidence: 50,
-      history: [{ timestamp: new Date().toISOString(), score: 50 }]
+      score: 0,
+      confidence: 0,
+      history: []
     };
 
     skillEvolution[id] = {
       competencyId: id,
-      timeline: [
-        { week: 1, score: 50 }
-      ]
+      timeline: []
     };
   });
 
@@ -211,66 +209,66 @@ export function createDefaultCandidateState(userId: string): CandidateState {
     userId,
     digitalTwin,
     communication: {
-      averageSpeakingSpeed: 130,
-      vocabularyRichness: 60,
-      sentenceStructure: 60,
-      answerClarity: 55,
-      conciseness: 55,
-      fillerWordFrequency: 3.5,
-      conversationFlow: 60,
-      history: [{ timestamp: new Date().toISOString(), clarity: 55, conciseness: 55 }]
+      averageSpeakingSpeed: 0,
+      vocabularyRichness: 0,
+      sentenceStructure: 0,
+      answerClarity: 0,
+      conciseness: 0,
+      fillerWordFrequency: 0,
+      conversationFlow: 0,
+      history: []
     },
     confidence: {
-      beginningConfidence: 55,
-      peakConfidence: 65,
-      confidenceRecovery: 50,
-      confidenceUnderPressure: 45,
-      confidenceDuringTechnical: 40,
-      trend: [{ timestamp: new Date().toISOString(), overallConfidence: 55 }]
+      beginningConfidence: 0,
+      peakConfidence: 0,
+      confidenceRecovery: 0,
+      confidenceUnderPressure: 0,
+      confidenceDuringTechnical: 0,
+      trend: []
     },
     stress: {
-      hesitations: 2.5,
-      speechInterruptions: 1,
-      longPauses: 1,
-      rapidSpeechInstances: 1,
-      emotionalRecovery: 60,
-      pressureTolerance: 55,
-      stressResilienceIndex: 60
+      hesitations: 0,
+      speechInterruptions: 0,
+      longPauses: 0,
+      rapidSpeechInstances: 0,
+      emotionalRecovery: 0,
+      pressureTolerance: 0,
+      stressResilienceIndex: 0
     },
     learning: {
       style: 'Practice Oriented',
-      adaptabilityRate: 50,
-      repetitionRequirement: 3,
-      coachingReceptivity: 75,
+      adaptabilityRate: 0,
+      repetitionRequirement: 0,
+      coachingReceptivity: 0,
       practiceCompletionRate: 0
     },
     behavioral: {
-      leadershipStyle: 'Empathetic Facilitator',
-      ownershipIndex: 50,
-      conflictManagementStyle: 'Collaborative Solver',
-      decisionMakingStyle: 'Balanced Analytical',
-      collaborationIndex: 55,
-      initiativeIndex: 50,
-      curiosityIndex: 60,
-      professionalMaturity: 55
+      leadershipStyle: 'Non Évalué / Not Evaluated',
+      ownershipIndex: 0,
+      conflictManagementStyle: 'Non Évalué / Not Evaluated',
+      decisionMakingStyle: 'Non Évalué / Not Evaluated',
+      collaborationIndex: 0,
+      initiativeIndex: 0,
+      curiosityIndex: 0,
+      professionalMaturity: 0
     },
     personality: {
-      reserved: 30,
-      analytical: 55,
-      confident: 50,
-      reflective: 45,
-      collaborative: 60,
-      assertive: 40,
-      adaptive: 50
+      reserved: 0,
+      analytical: 0,
+      confident: 0,
+      reflective: 0,
+      collaborative: 0,
+      assertive: 0,
+      adaptive: 0
     },
     skillEvolution,
     readiness: {
-      behavioralReadiness: { score: 50, explanation: 'Foundational understanding. Tends to answer with scenario descriptions rather than measurable results.' },
-      technicalReadiness: { score: 50, explanation: 'Displays acceptable core domain familiarity, needs to describe architectural trade-offs.' },
-      leadershipReadiness: { score: 45, explanation: 'Exhibits team guiding instinct; needs structured delegation and accountability framing.' },
-      executiveReadiness: { score: 40, explanation: 'Needs practice with brief business impact high-level summaries for leadership review.' },
-      companyReadiness: { score: 50, explanation: 'Grasps general customer problems; needs specific cultural and goal alignment values.' },
-      overallHiringReadiness: { score: 47, explanation: 'Promising profile. Focus on practicing the STAR methodology and incorporating metrics.' }
+      behavioralReadiness: { score: 0, explanation: 'Aucune simulation d\'entretien comportemental effectuée pour le moment. / No behavioral interview simulation completed yet.' },
+      technicalReadiness: { score: 0, explanation: 'Aucune question technique validée pour le moment. / No technical questions validated yet.' },
+      leadershipReadiness: { score: 0, explanation: 'Aucun indicateur de leadership enregistré pour le moment. / No leadership indicators recorded yet.' },
+      executiveReadiness: { score: 0, explanation: 'Aucune présentation exécutive évaluée pour le moment. / No executive presentation evaluated yet.' },
+      companyReadiness: { score: 0, explanation: 'Alignement entreprise en attente d\'évaluation. / Company alignment pending evaluation.' },
+      overallHiringReadiness: { score: 0, explanation: 'Réalisez votre première simulation pour activer et calibrer votre indice d\'embauche global. / Start your first simulation to calibrate your overall readiness index.' }
     },
     coachingStrategy: {
       currentWeek: 1,

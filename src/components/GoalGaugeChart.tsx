@@ -265,7 +265,11 @@ export default function GoalGaugeChart({ user, history, lang }: GoalGaugeChartPr
                   {lang === 'FR' ? "ANALYSE DE COMPARAISON" : "COMPARISON INSIGHT"}
                 </span>
                 <p className="text-xs text-stone-700 leading-relaxed font-semibold">
-                  {isGoalMet ? (
+                  {actualProgress === 0 ? (
+                    lang === 'FR'
+                      ? "Bienvenue sur SHANA ! Avançons pas à pas et à votre rythme. Déposez votre CV pour commencer l'aventure en toute sérénité !"
+                      : "Welcome to SHANA! Let's take it step-by-step at your own pace. Upload your CV to begin your journey with ease!"
+                  ) : isGoalMet ? (
                     lang === 'FR' 
                       ? `Félicitations ! Vous surpassez votre cible de ${diff}%. Votre régularité est excellente.`
                       : `Superb work! You are pacing ${diff}% ahead of your target. Your training momentum is stellar.`

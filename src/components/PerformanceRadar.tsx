@@ -26,56 +26,57 @@ export default function PerformanceRadar({ history, lang }: PerformanceRadarProp
     const assessSessions = history.filter(h => h.type === 'ASSESS');
     const trainSessions = history.filter(h => h.type === 'TRAIN');
 
+    const hasSessions = history.some(h => h.type === 'ASSESS' || h.type === 'TRAIN');
+
     // 1. Resolve Communication Score
-    let communication = 55; // default baseline calibration value
+    let communication = 0; // start from 0
     if (assessSessions.length > 0) {
       const vals = assessSessions.map(s => s.communicationScore || s.score).filter(Boolean);
-      if (vals.length > 0) communication = Math.round(d3.mean(vals) || 55);
+      if (vals.length > 0) communication = Math.round(d3.mean(vals) || 0);
     } else if (trainSessions.length > 0) {
       const vals = trainSessions.map(s => s.score).filter(Boolean);
-      if (vals.length > 0) communication = Math.round(d3.mean(vals) || 55);
+      if (vals.length > 0) communication = Math.round(d3.mean(vals) || 0);
     }
 
     // 2. Resolve Technical Knowledge (based on resume + industry relevance)
-    let technical = 50;
+    let technical = 0;
     if (assessSessions.length > 0) {
       const vals = assessSessions.map(s => {
         const r = s.resumeScore || s.score;
         const i = s.industryScore || s.score;
         return (r + i) / 2;
       }).filter(Boolean);
-      if (vals.length > 0) technical = Math.round(d3.mean(vals) || 50);
+      if (vals.length > 0) technical = Math.round(d3.mean(vals) || 0);
     }
 
     // 3. Resolve Pacing (based on confidence score + fluency metrics derived from practice sessions)
-    let pacing = 50;
+    let pacing = 0;
     if (assessSessions.length > 0) {
       const vals = assessSessions.map(s => s.confidenceScore || s.score).filter(Boolean);
-      if (vals.length > 0) pacing = Math.round(d3.mean(vals) || 50);
+      if (vals.length > 0) pacing = Math.round(d3.mean(vals) || 0);
     } else if (trainSessions.length > 0) {
-      // Train sessions heavily measure vocal confidence and pacing
-      const vals = trainSessions.map(s => s.confidenceScore || s.score || 60);
-      pacing = Math.round(d3.mean(vals) || 50);
+      const vals = trainSessions.map(s => s.confidenceScore || s.score || 0);
+      pacing = Math.round(d3.mean(vals) || 0);
     }
 
     // 4. Resolve Behavioral Fit (based on structured answer alignment & situational adaptability)
-    let behavioral = 52;
+    let behavioral = 0;
     if (assessSessions.length > 0) {
       const vals = assessSessions.map(s => s.behavioralScore || s.score).filter(Boolean);
-      if (vals.length > 0) behavioral = Math.round(d3.mean(vals) || 52);
+      if (vals.length > 0) behavioral = Math.round(d3.mean(vals) || 0);
     }
 
     // 5. Resolve Analytical Flow (or structured STAR delivery method competence)
-    let analytical = 48;
+    let analytical = 0;
     if (assessSessions.length > 0) {
       const vals = assessSessions.map(s => s.adaptabilityScore || s.score).filter(Boolean);
-      if (vals.length > 0) analytical = Math.round(d3.mean(vals) || 48);
+      if (vals.length > 0) analytical = Math.round(d3.mean(vals) || 0);
     }
 
     return [
       {
         axis: 'communication',
-        value: Math.min(100, Math.max(10, communication)),
+        value: !hasSessions ? 0 : Math.min(100, Math.max(0, communication)),
         labelEn: 'Communication',
         labelFr: 'Élocution',
         descriptionEn: 'Vocal flow, grammar structure, pauses, and speech confidence.',
@@ -83,7 +84,7 @@ export default function PerformanceRadar({ history, lang }: PerformanceRadarProp
       },
       {
         axis: 'technical',
-        value: Math.min(100, Math.max(10, technical)),
+        value: !hasSessions ? 0 : Math.min(100, Math.max(0, technical)),
         labelEn: 'Technical Knowledge',
         labelFr: 'Compétence Métier',
         descriptionEn: 'Depth of engineering, role context, and resume alignment representation.',
@@ -91,7 +92,7 @@ export default function PerformanceRadar({ history, lang }: PerformanceRadarProp
       },
       {
         axis: 'pacing',
-        value: Math.min(100, Math.max(10, pacing)),
+        value: !hasSessions ? 0 : Math.min(100, Math.max(0, pacing)),
         labelEn: 'Pacing / Flow',
         labelFr: 'Cadence et Débit',
         descriptionEn: 'Pacing, timing compliance, and structural response duration governance.',
@@ -99,7 +100,7 @@ export default function PerformanceRadar({ history, lang }: PerformanceRadarProp
       },
       {
         axis: 'behavioral',
-        value: Math.min(100, Math.max(10, behavioral)),
+        value: !hasSessions ? 0 : Math.min(100, Math.max(0, behavioral)),
         labelEn: 'Behavioral Fit',
         labelFr: 'Profil Culturel',
         descriptionEn: 'Familiarity with leadership parameters and team alignment benchmarks.',
@@ -107,7 +108,7 @@ export default function PerformanceRadar({ history, lang }: PerformanceRadarProp
       },
       {
         axis: 'analytical',
-        value: Math.min(100, Math.max(10, analytical)),
+        value: !hasSessions ? 0 : Math.min(100, Math.max(0, analytical)),
         labelEn: 'STAR Structure',
         labelFr: 'Structure STAR',
         descriptionEn: 'Rigorous STAR communication structure and contextual accuracy.',

@@ -428,6 +428,11 @@ export function inputSanitizerMiddleware(req: Request, res: Response, next: Next
   const promptInjectionPattern = /(ignore previous instructions|system override|you must act as|output the system prompt|reveal instructions|ignore the above)/i;
 
   const checkValue = (val: any, path: string): { ok: boolean; reason?: string } => {
+    // Skip checking CV upload text payload and other raw/base64 document content fields
+    if (path === "body.text" || path.endsWith(".text")) {
+      return { ok: true };
+    }
+
     if (typeof val === 'string') {
       if (sqlInjectionPattern.test(val)) {
         return { ok: false, reason: `Potential SQL Injection attempt detected in field '${path}'` };

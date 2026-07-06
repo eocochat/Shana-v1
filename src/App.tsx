@@ -5,13 +5,14 @@ import OnboardingFlow from './components/OnboardingFlow';
 import AuthScreens from './components/AuthScreens';
 import InfoPages from './components/InfoPages';
 import { StorageService } from './lib/storage';
+import { DbSyncManager } from './lib/dbSync';
 import { ToastProvider } from './components/Toast';
 import CookieConsentBanner from './components/CookieConsentBanner';
 import { getCookie } from './lib/cookies';
 import { getBrowserLanguage } from './utils';
 import CelebrationConfetti from './components/CelebrationConfetti';
-import SparklineHeaderTrend from './components/SparklineHeaderTrend';
-import { Sliders, X, RefreshCw, HelpCircle, Camera, Mic, Loader2, FlipHorizontal } from 'lucide-react';
+const SparklineHeaderTrend = React.lazy(() => import('./components/SparklineHeaderTrend'));
+import { Sliders, X, RefreshCw, HelpCircle, Camera, Mic, Loader2, FlipHorizontal, Sparkles } from 'lucide-react';
 
 const tooltipVariants = {
   rest: { opacity: 0, y: 10, scale: 0.95 },
@@ -20,6 +21,7 @@ const tooltipVariants = {
 
 export default function App() {
   const [checkedSession, setCheckedSession] = useState(false);
+  const [userRole, setUserRole] = useState<string>('candidate');
   const [view, setView] = useState<'landing' | 'onboarding' | 'auth' | 'info'>('landing');
   const [activeInfoPage, setActiveInfoPage] = useState<string>('how-it-works');
 
@@ -41,6 +43,7 @@ export default function App() {
   const [hasCelebrated, setHasCelebrated] = useState(false);
   const [showSubtleCelebration, setShowSubtleCelebration] = useState(false);
   const [activeMobileStepIdx, setActiveMobileStepIdx] = useState<number | null>(null);
+  const [hoveredStepIdx, setHoveredStepIdx] = useState<number | null>(null);
   const prevProgressRef = useRef<number>(-1);
 
   // Diagnostic states
@@ -267,9 +270,13 @@ export default function App() {
 
   useEffect(() => {
     calculateProgress();
+    const session = StorageService.getSession();
+    setUserRole(session?.user?.role || 'candidate');
 
     const handleProgressUpdate = () => {
       calculateProgress();
+      const currentSession = StorageService.getSession();
+      setUserRole(currentSession?.user?.role || 'candidate');
     };
 
     window.addEventListener('shana_progress_update', handleProgressUpdate);
@@ -280,25 +287,41 @@ export default function App() {
 
   useEffect(() => {
     const fetchSession = async () => {
-      try {
-        const response = await fetch('/api/auth/session');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.authenticated && data.userId) {
-            StorageService.setSessionInMemory(data.userId);
-            const user = StorageService.getUser(data.userId);
-            const profile = StorageService.getProfile(data.userId);
-            if (user && profile) {
-              setView('auth');
-              setAuthInitialView(profile.onboardingCompleted ? 'home' : 'profile-creation');
+      let retries = 5;
+      let delay = 1500;
+      while (retries > 0) {
+        try {
+          const response = await fetch('/api/auth/session');
+          if (response.ok) {
+            const data = await response.json();
+            if (data.authenticated && data.userId) {
+              StorageService.setSessionInMemory(data.userId);
+              // Restore and synchronize user data from Firestore before logging in
+              await DbSyncManager.syncCloudToLocal(data.userId);
+              const user = StorageService.getUser(data.userId);
+              const profile = StorageService.getProfile(data.userId);
+              if (user && profile) {
+                setUserRole(user.role || 'candidate');
+                setView('auth');
+                setAuthInitialView(profile.onboardingCompleted ? 'home' : 'profile-creation');
+              }
             }
+            break; // Success, break retry loop
+          } else {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+        } catch (err) {
+          retries--;
+          console.warn(`[SHANA App] Session fetch attempt failed. Retries remaining: ${retries}`, err);
+          if (retries === 0) {
+            console.error('[SHANA App] Session initial check error:', err);
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            delay *= 1.5; // Exponential-ish backoff
           }
         }
-      } catch (err) {
-        console.error('[SHANA App] Session initial check error:', err);
-      } finally {
-        setCheckedSession(true);
       }
+      setCheckedSession(true);
     };
 
     fetchSession();
@@ -397,7 +420,9 @@ export default function App() {
                   </span>
 
                   {/* Elegant sparkline weekly trend */}
-                  <SparklineHeaderTrend userId={StorageService.getSession()?.user?.id || 'guest'} lang={lang} />
+                  <React.Suspense fallback={<div className="w-[120px] h-[30px] animate-pulse bg-white/20 border border-stone-950/20 rounded-md" />}>
+                    <SparklineHeaderTrend userId={StorageService.getSession()?.user?.id || 'guest'} lang={lang} />
+                  </React.Suspense>
 
                   {/* Global media diagnostic check trigger button */}
                   <button
@@ -408,6 +433,22 @@ export default function App() {
                     <Sliders className="w-3 h-3 text-stone-950" />
                     <span>{lang === 'FR' ? "Diagnostic" : "Diagnostic Check"}</span>
                   </button>
+
+                  {/* Persistent Admin Dashboard Button for Admins */}
+                  {(userRole === 'admin' || 
+                    userRole === 'super_admin' || 
+                    userRole === 'superadmin') && (
+                    <button
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent('shana_change_tab', { detail: { tab: 'admin' } }));
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-wider bg-amber-500 hover:bg-amber-600 text-stone-950 border-[1.5px] border-stone-950 transition-all cursor-pointer shadow-[1.5px_1.5px_0px_0px_#111111] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[0.5px_0.5px_0px_0px_#111111] font-sans"
+                      title={lang === 'FR' ? "Ouvrir le Tableau de bord Admin" : "Open Admin Dashboard"}
+                    >
+                      <Sparkles className="w-3 h-3 text-stone-950 animate-pulse" />
+                      <span>{lang === 'FR' ? "Admin Dashboard" : "Admin Dashboard"}</span>
+                    </button>
+                  )}
 
                   {/* Circular 'Live Camera Preview' Toggle with 40x40 picture-in-picture window */}
                   <div className="inline-flex items-center gap-1.5 shrink-0">
@@ -497,8 +538,10 @@ export default function App() {
                       tabIndex={0}
                       role="button"
                       aria-label={`${step.label} step`}
-                      initial="rest"
-                      whileHover="hover"
+                      onMouseEnter={() => setHoveredStepIdx(idx)}
+                      onMouseLeave={() => setHoveredStepIdx(null)}
+                      onFocus={() => setHoveredStepIdx(idx)}
+                      onBlur={() => setHoveredStepIdx(null)}
                       onClick={() => {
                         // Toggle selected step details on mobile devices
                         setActiveMobileStepIdx(activeMobileStepIdx === idx ? null : idx);
@@ -519,28 +562,34 @@ export default function App() {
                       <span className="uppercase tracking-wide">{step.label}</span>
 
                       {/* Tooltip Card - Shown ONLY on desktop devices (hidden on mobile to prevent clipping) */}
-                      <motion.div 
-                        variants={tooltipVariants}
-                        transition={{ duration: 0.2, ease: 'easeOut' }}
-                        className="hidden sm:block absolute top-full right-0 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 mt-2.5 w-60 p-3 bg-white text-slate-600 rounded-xl border border-slate-200 shadow-lg z-50 text-left font-sans normal-case tracking-normal pointer-events-none"
-                      >
-                        <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-1.5 mb-1.5">
-                          <span className="font-sans text-[10px] font-extrabold text-slate-800 uppercase tracking-wider">{step.label}</span>
-                          <span className={`font-sans text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded ${
-                            step.completed 
-                              ? 'bg-emerald-50 text-emerald-600 border border-emerald-155' 
-                              : 'bg-slate-100 text-slate-400 border border-slate-200/40'
-                          }`}>
-                            {step.completed ? (lang === 'FR' ? "Complété" : "Completed") : (lang === 'FR' ? "À faire" : "Pending")}
-                          </span>
-                        </div>
-                        <p className="text-slate-500 text-[10px] leading-relaxed font-medium">
-                          {step.description}
-                        </p>
-                        
-                        {/* Little indicator tooltip arrow */}
-                        <div className="absolute bottom-full right-4 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 w-2 h-2 bg-white border-t border-l border-slate-200 rotate-45 translate-y-[5px]" />
-                      </motion.div>
+                      <AnimatePresence>
+                        {hoveredStepIdx === idx && (
+                          <motion.div 
+                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                            transition={{ duration: 0.15, ease: 'easeOut' }}
+                            className="hidden sm:block absolute top-full right-0 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 mt-2.5 w-60 p-3 bg-white text-slate-600 rounded-xl border border-slate-200 shadow-lg z-50 text-left font-sans normal-case tracking-normal pointer-events-none"
+                          >
+                            <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-1.5 mb-1.5">
+                              <span className="font-sans text-[10px] font-extrabold text-slate-800 uppercase tracking-wider">{step.label}</span>
+                              <span className={`font-sans text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded ${
+                                step.completed 
+                                  ? 'bg-emerald-50 text-emerald-600 border border-emerald-155' 
+                                  : 'bg-slate-100 text-slate-400 border border-slate-200/40'
+                              }`}>
+                                {step.completed ? (lang === 'FR' ? "Complété" : "Completed") : (lang === 'FR' ? "À faire" : "Pending")}
+                              </span>
+                            </div>
+                            <p className="text-slate-500 text-[10px] leading-relaxed font-medium">
+                              {step.description}
+                            </p>
+                            
+                            {/* Little indicator tooltip arrow */}
+                            <div className="absolute bottom-full right-4 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 w-2 h-2 bg-white border-t border-l border-slate-200 rotate-45 translate-y-[5px]" />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </motion.div>
                   ))}
                 </div>

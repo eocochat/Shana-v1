@@ -438,7 +438,7 @@ export default function EnterpriseCenter({ currentUser, lang = 'FR' }: Enterpris
                 ENTERPRISE CONSOLE
               </span>
               <span className="px-2 py-0.5 bg-violet-500/10 text-violet-300 rounded-full text-[9px] font-mono border border-violet-500/20 uppercase font-bold">
-                PHASE 9 WORKSPACE
+                PHASE 29 — ENTERPRISE RECRUITER PLATFORM
               </span>
             </div>
             <h1 className="font-sans font-bold text-2xl tracking-tight text-white">

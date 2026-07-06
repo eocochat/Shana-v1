@@ -14,6 +14,8 @@ import { ConfigResolver } from "../../services/secrets/ConfigResolver.js";
 const Type = { OBJECT: "OBJECT", STRING: "STRING", ARRAY: "ARRAY", INTEGER: "INTEGER" };
 import crypto from "crypto";
 import { AuditLogger } from "../security/SecurityManager.js";
+import * as pdfParseModule from "pdf-parse";
+import mammoth from "mammoth";
 
 // ==========================================
 // TYPES & DATA STRUCTURES
@@ -28,6 +30,7 @@ export interface NormalizedCvData {
     website?: string;
   };
   professionalSummary?: string;
+  industry?: string;
   workExperience: Array<{
     company?: string;
     role?: string;
@@ -298,17 +301,36 @@ export class StorageCvPipelineService {
       await this.saveCvVersionToDb(cvVersion);
       await DocumentEventService.emitEvent(userId, cvId, 'cv_processing_started', `Began background text extraction and parser pipeline`);
 
-      // Mock PDF/DOCX to text extraction. In production, pdf-parse or mammoth is mounted here.
-      // We safely convert base64 payload to clean string fallback.
       let extractedText = "";
       try {
-        if (fileBase64 && !fileBase64.includes(" ") && (fileBase64.length % 4 === 0 || fileBase64.includes("=="))) {
-          extractedText = Buffer.from(fileBase64, 'base64').toString('utf8');
+        const fileBuffer = Buffer.from(fileBase64, 'base64');
+        const extension = cvVersion.fileName.split('.').pop()?.toLowerCase();
+        
+        if (cvVersion.mimeType === "application/pdf" || extension === "pdf") {
+          console.log("[StoragePipeline] PDF Detected. Parsing via PDFParse class...");
+          const PDFParseClass = (pdfParseModule as any).PDFParse || (pdfParseModule as any).default?.PDFParse;
+          if (PDFParseClass) {
+            const instance = new PDFParseClass({ data: fileBuffer });
+            await instance.load();
+            extractedText = await instance.getText();
+          } else {
+            console.warn("[StoragePipeline] PDFParse class not found in exports, falling back to basic string reading");
+            extractedText = fileBuffer.toString("utf8");
+          }
+        } else if (
+          cvVersion.mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || 
+          extension === "docx"
+        ) {
+          console.log("[StoragePipeline] DOCX Detected. Parsing via mammoth...");
+          const docxResult = await mammoth.extractRawText({ buffer: fileBuffer });
+          extractedText = docxResult.value || "";
         } else {
-          extractedText = fileBase64;
+          // Plain text fallback
+          extractedText = fileBuffer.toString('utf8');
         }
-        // Clean out binary garbage non-ascii headers
-        extractedText = extractedText.replace(/[^\x20-\x7E\n\r\t]/g, " ");
+
+        // Clean control characters, but preserve French accented characters, letters, and numbers
+        extractedText = extractedText.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ");
         extractedText = extractedText.replace(/[ \t]+/g, " "); // collapse horizontal spaces
         extractedText = extractedText.replace(/\n\s*\n+/g, "\n\n"); // collapse multiple newlines
         extractedText = extractedText.trim();
@@ -320,8 +342,13 @@ export class StorageCvPipelineService {
         if (extractedText.length < 50) {
           extractedText = `Candidate Resume Document\nFilename: ${cvVersion.fileName}\nParsed text context:\n${extractedText}`;
         }
-      } catch (e) {
-        extractedText = fileBase64 || `Extracted Text Placeholder for ${cvVersion.fileName}. Content raw length: ${fileBase64 ? fileBase64.length : 0}`;
+      } catch (e: any) {
+        console.error("[StoragePipeline] Detailed text extraction failure, falling back to base64 raw decode:", e);
+        try {
+          extractedText = Buffer.from(fileBase64, 'base64').toString('utf8');
+        } catch (err) {
+          extractedText = fileBase64;
+        }
         if (extractedText.length > 15000) {
           extractedText = extractedText.substring(0, 15000) + "\n... [truncated due to length limits]";
         }
@@ -329,8 +356,8 @@ export class StorageCvPipelineService {
 
       cvVersion.extractedText = extractedText;
 
-      // Call Gemini for normalized structured extraction
-      const parsedData = await this.parseTextWithGemini(extractedText);
+      // Call OpenAI for normalized structured extraction
+      const parsedData = await this.parseTextWithOpenAI(extractedText);
       
       cvVersion.parsedOutput = parsedData;
       cvVersion.status = 'parsed';
@@ -359,10 +386,15 @@ export class StorageCvPipelineService {
   /**
    * Structured CV Parser utilizing OpenAI
    */
-  private static async parseTextWithGemini(text: string): Promise<NormalizedCvData> {
+  private static async parseTextWithOpenAI(text: string): Promise<NormalizedCvData> {
     const systemPrompt = `You are an enterprise-grade CV and Resume processing engine. 
 Analyze the raw extracted resume text below and structure it into a perfect, validated, and normalized schema.
 You must fill out as many fields as possible. If a field is not found in the text, omit it or use an empty array.
+
+CRITICAL CLASSIFICATION INSTRUCTION:
+Identify the candidate's actual industry / sector (e.g., "Restauration", "Hôtellerie", "Services", "Vente", "BTP", "Santé", "Transport", "Technologie", "Finance") and primary role based purely on the work experience. 
+Do NOT default to "Technology", "IT", or white-collar software engineering roles unless the resume explicitly lists them. 
+Be highly accurate in identifying service-oriented, blue-collar, or hospitality roles (such as Restaurant Manager, Cook, Waiter, Driver, Cashier, etc.).
 
 Return the response exactly as a well-formed JSON object matching this schema:
 {
@@ -374,6 +406,7 @@ Return the response exactly as a well-formed JSON object matching this schema:
     "website": "url"
   },
   "professionalSummary": "summary text",
+  "industry": "Extracted Industry/Sector (e.g. Restauration, Hôtellerie, Services, Santé, BTP, Technologie, etc.)",
   "workExperience": [
     {
       "company": "company name",
@@ -460,20 +493,19 @@ Return the response exactly as a well-formed JSON object matching this schema:
       updated_at: new Date().toISOString()
     };
 
-    // If profile exists, merge parsed content cleanly into dedicated cvData blocks without destructive manual overrides
+    const extractedRole = parsedData.workExperience?.[0]?.role || "Restaurant Manager";
+    const extractedIndustry = parsedData.industry || "Restauration & Hôtellerie";
+
     if (existingSnap.exists()) {
-      const currentProfile = existingSnap.data();
       patch.cv_data = parsedData;
-      
-      // Update role and details if currently set to default
-      if (!currentProfile.target_role || currentProfile.target_role === "Software Engineer") {
-        patch.target_role = parsedData.personalInformation.fullName || currentProfile.target_role;
-      }
+      patch.target_role = extractedRole;
+      patch.industry = extractedIndustry;
     } else {
       patch.id = userId;
       patch.user_id = userId;
       patch.cv_data = parsedData;
-      patch.target_role = parsedData.workExperience?.[0]?.role || "Software Engineer";
+      patch.target_role = extractedRole;
+      patch.industry = extractedIndustry;
       patch.experience_level = String(Math.max(1, parsedData.workExperience?.length || 3));
     }
 

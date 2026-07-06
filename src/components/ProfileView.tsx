@@ -44,6 +44,75 @@ export default function ProfileView({ user, lang, onChangeLang, onUpdateProfile,
   const [monetization, setMonetization] = useState(() => StorageService.getCandidateMonetization(uId));
   const [selectedProductForCheckout, setSelectedProductForCheckout] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+
+  const handleDeleteAccount = async () => {
+    const confirmation = window.confirm(
+      lang === 'FR'
+        ? "ATTENTION : Êtes-vous absolument sûr de vouloir supprimer définitivement votre compte ? Cette action supprimera de façon irréversible votre profil, vos analyses de CV, votre historique de sessions d'entraînement ainsi que vos crédits de sessions. Cette opération est conforme au RGPD."
+        : "WARNING: Are you absolutely sure you want to permanently delete your account? This will irreversibly erase your candidate profile, CV intelligence reports, practice session history, and any purchased session credits under GDPR regulations. This action cannot be undone."
+    );
+
+    if (!confirmation) return;
+
+    // Second verification step: type email to confirm
+    const confirmEmail = window.prompt(
+      lang === 'FR'
+        ? `Pour confirmer, veuillez saisir votre adresse e-mail (${user.email}) :`
+        : `To confirm deletion, please type your email address (${user.email}):`
+    );
+
+    if (confirmEmail?.toLowerCase().trim() !== user.email?.toLowerCase().trim()) {
+      addToast({
+        title: lang === 'FR' ? "Confirmation Incorrecte" : "Confirmation Mismatch",
+        description: lang === 'FR' ? "L'e-mail saisi ne correspond pas. Suppression annulée." : "The typed email did not match. Deletion cancelled.",
+        type: "error"
+      });
+      return;
+    }
+
+    setIsDeletingAccount(true);
+    try {
+      const response = await fetch('/api/auth/delete-account', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ userId: uId })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to delete account from cloud database.");
+      }
+
+      // Purge client local storage completely for this user
+      StorageService.purgeUserData(uId);
+
+      addToast({
+        title: lang === 'FR' ? "Compte Supprimé" : "Account Deleted",
+        description: lang === 'FR' 
+          ? "Vos données ont été purgées avec succès conformément au RGPD. Redirection..." 
+          : "Your data has been successfully purged under GDPR regulations. Redirecting...",
+        type: "success"
+      });
+
+      // Session and auth state cleared, invoke logout to return to landing view
+      setTimeout(() => {
+        onLogout();
+      }, 1500);
+
+    } catch (err: any) {
+      addToast({
+        title: lang === 'FR' ? "Erreur de Suppression" : "Deletion Error",
+        description: err.message || "An error occurred while executing GDPR purge. Please contact administrator.",
+        type: "error"
+      });
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
 
   const handleRestorePurchases = async () => {
     setIsRestoring(true);
@@ -1259,6 +1328,40 @@ export default function ProfileView({ user, lang, onChangeLang, onUpdateProfile,
           >
             <Trash2 className="w-4 h-4" />
             <span>{lang === 'FR' ? "Réinitialiser tous les compteurs (À ZÉRO)" : "Reset all user counters (TO ZERO)"}</span>
+          </button>
+        </div>
+
+        {/* GDPR Privacy Control Section */}
+        <div className="pt-6 border-t-2 border-stone-950 bg-stone-50 p-5 rounded-2xl border-2 border-stone-950 space-y-3.5 text-left shadow-[4px_4px_0px_0px_rgba(17,17,17,1)]">
+          <div>
+            <span className="text-[11px] font-mono font-black uppercase tracking-widest text-stone-600 flex items-center gap-1.5">
+              <Shield className="w-4 h-4 text-emerald-600" />
+              <span>{lang === 'FR' ? "PROTECTION DES DONNÉES & RGPD" : "DATA PRIVACY & GDPR PROTECTION"}</span>
+            </span>
+            <h4 className="text-sm font-black text-stone-950 uppercase mt-1.5">
+              {lang === 'FR' ? "Purge de Mes Données Personnelles" : "Personal Data Purge"}
+            </h4>
+            <p className="text-xs text-stone-700 mt-0.5 leading-relaxed font-bold">
+              {lang === 'FR'
+                ? "Supprime définitivement votre identité, vos profils, vos analyses de CV, votre historique et vos crédits de tous nos serveurs de stockage. Cette action est immédiate et irrévocable."
+                : "Permanently delete your account, saved profile, uploaded CV data, practice histories, and unused session tokens from our systems. This action is immediate and irreversible."}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleDeleteAccount}
+            disabled={isDeletingAccount}
+            className="w-full sm:w-auto px-4 py-3 bg-red-100 hover:bg-red-200 text-red-950 font-black border-2 border-stone-950 rounded-xl text-xs uppercase tracking-wider cursor-pointer transition-all flex items-center justify-center gap-2 shadow-[3px_3px_0px_0px_rgba(17,17,17,1)] active:translate-x-[0.5px] active:translate-y-[0.5px]"
+            id="gdpr-delete-account-btn"
+          >
+            <Trash2 className="w-4 h-4 text-red-600" />
+            <span>
+              {isDeletingAccount 
+                ? (lang === 'FR' ? "PURGE EN COURS..." : "PURGING DATA...") 
+                : (lang === 'FR' ? "Supprimer Mon Compte (RGPD)" : "Delete My Account (GDPR)")
+              }
+            </span>
           </button>
         </div>
 

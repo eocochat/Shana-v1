@@ -122,7 +122,7 @@ export const translations = {
       errorIndustry: "Veuillez entrer votre secteur d'activité",
     },
     nav: {
-      home: "Tableau de Bord",
+      home: "Accueil",
       train: "S'entraîner",
       discoveries: "Découvertes",
       assessment: "S'évaluer",

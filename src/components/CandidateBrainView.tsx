@@ -33,6 +33,8 @@ import {
 import { CandidateProfileService } from '../lib/candidate/candidateProfile';
 import { CandidateState, DigitalTwinCompetency } from '../lib/candidate/candidateState';
 import { motion } from 'motion/react';
+import { StorageService } from '../lib/storage';
+import EnterpriseCenter from './admin/enterprise/EnterpriseCenter';
 
 interface CandidateBrainViewProps {
   userId: string;
@@ -42,7 +44,7 @@ interface CandidateBrainViewProps {
 
 export default function CandidateBrainView({ userId, lang, onChangeTab }: CandidateBrainViewProps) {
   const [profileState, setProfileState] = useState<CandidateState | null>(null);
-  const [subTab, setSubTab] = useState<'cognitive' | 'career'>('cognitive');
+  const [subTab, setSubTab] = useState<'cognitive' | 'career' | 'recruiter'>('cognitive');
   const [selectedTrack, setSelectedTrack] = useState<string>('');
   const [selectedJobId, setSelectedJobId] = useState<string>('job_01');
   const [selectedModuleId, setSelectedModuleId] = useState<string>('module_01');
@@ -93,20 +95,110 @@ export default function CandidateBrainView({ userId, lang, onChangeTab }: Candid
 
   const isFr = lang === 'FR';
   const {
-    digitalTwin,
-    communication,
-    confidence,
-    stress,
+    digitalTwin: rawDigitalTwin,
+    communication: rawCommunication,
+    confidence: rawConfidence,
+    stress: rawStress,
     learning,
-    behavioral,
-    personality,
-    readiness,
+    behavioral: rawBehavioral,
+    personality: rawPersonality,
+    readiness: rawReadiness,
     coachingStrategy,
     improvementPlanner,
     memory,
     motivation,
     recommendations
   } = profileState;
+
+  // Check if they have actually done any tests (only count real vocal simulations or voice training sessions)
+  const baseHistory = StorageService.getHistory(userId) || [];
+  let voiceSessions = [];
+  try {
+    const saved = localStorage.getItem(`shana_voice_sessions_${userId}`);
+    if (saved) {
+      voiceSessions = JSON.parse(saved);
+    }
+  } catch (e) {}
+  
+  const realHistory = baseHistory.filter(h => h && (h.type === 'ASSESS' || h.type === 'INTERVIEW' || h.type === 'TRAIN'));
+  const hasCompletedSessions = realHistory.length > 0 || voiceSessions.length > 0;
+
+  // Compute final variables used in view (keeping the exact same variable names!)
+  const digitalTwin = { ...rawDigitalTwin };
+  if (!hasCompletedSessions) {
+    Object.keys(digitalTwin).forEach(key => {
+      digitalTwin[key] = {
+        ...digitalTwin[key],
+        score: 0,
+        confidence: 0,
+        history: []
+      };
+    });
+  }
+
+  const communication = !hasCompletedSessions ? {
+    ...rawCommunication,
+    averageSpeakingSpeed: 0,
+    vocabularyRichness: 0,
+    sentenceStructure: 0,
+    answerClarity: 0,
+    conciseness: 0,
+    fillerWordFrequency: 0,
+    conversationFlow: 0,
+    history: []
+  } : rawCommunication;
+
+  const confidence = !hasCompletedSessions ? {
+    ...rawConfidence,
+    beginningConfidence: 0,
+    peakConfidence: 0,
+    confidenceRecovery: 0,
+    confidenceUnderPressure: 0,
+    confidenceDuringTechnical: 0,
+    trend: []
+  } : rawConfidence;
+
+  const stress = !hasCompletedSessions ? {
+    ...rawStress,
+    hesitations: 0,
+    speechInterruptions: 0,
+    longPauses: 0,
+    rapidSpeechInstances: 0,
+    emotionalRecovery: 0,
+    pressureTolerance: 0,
+    stressResilienceIndex: 0
+  } : rawStress;
+
+  const behavioral = !hasCompletedSessions ? {
+    ...rawBehavioral,
+    leadershipStyle: isFr ? 'Non Évalué' : 'Not Evaluated',
+    ownershipIndex: 0,
+    conflictManagementStyle: isFr ? 'Non Évalué' : 'Not Evaluated',
+    decisionMakingStyle: isFr ? 'Non Évalué' : 'Not Evaluated',
+    collaborationIndex: 0,
+    initiativeIndex: 0,
+    curiosityIndex: 0,
+    professionalMaturity: 0
+  } : rawBehavioral;
+
+  const personality = !hasCompletedSessions ? {
+    reserved: 0,
+    analytical: 0,
+    confident: 0,
+    reflective: 0,
+    collaborative: 0,
+    assertive: 0,
+    adaptive: 0
+  } : rawPersonality;
+
+  const readiness = !hasCompletedSessions ? {
+    behavioralReadiness: { score: 0, explanation: isFr ? 'Aucune simulation d\'entretien comportemental effectuée pour le moment. / No behavioral interview simulation completed yet.' : 'No behavioral interview simulation completed yet.' },
+    technicalReadiness: { score: 0, explanation: isFr ? 'Aucune question technique validée pour le moment. / No technical questions validated yet.' : 'No technical questions validated yet.' },
+    leadershipReadiness: { score: 0, explanation: isFr ? 'Aucun indicateur de leadership enregistré pour le moment. / No leadership indicators recorded yet.' : 'No leadership indicators recorded yet.' },
+    executiveReadiness: { score: 0, explanation: isFr ? 'Aucune présentation exécutive évaluée pour le moment. / No executive presentation evaluated yet.' : 'No executive presentation evaluated yet.' },
+    companyReadiness: { score: 0, explanation: isFr ? 'Alignement entreprise en attente d\'évaluation. / Company alignment pending evaluation.' : 'Company alignment pending evaluation.' },
+    overallHiringReadiness: { score: 0, explanation: isFr ? 'Réalisez votre première simulation pour activer et calibrer votre indice d\'embauche global. / Start your first simulation to calibrate your overall readiness index.' : 'Start your first simulation to calibrate your overall readiness index.' }
+  } : rawReadiness;
 
   // Best competency
   const twinArray = Object.values(digitalTwin) as DigitalTwinCompetency[];
@@ -120,7 +212,8 @@ export default function CandidateBrainView({ userId, lang, onChangeTab }: Candid
     : 0;
 
   // Unlocked milestones
-  const unlockedCount = motivation.milestones.filter(m => m.unlockedAt).length;
+  const unlockedCount = !hasCompletedSessions ? 0 : motivation.milestones.filter(m => m.unlockedAt).length;
+  const streakCount = !hasCompletedSessions ? 0 : motivation.streakCount;
 
   return (
     <div id="candidate-brain-workspace" className="py-2 max-w-5xl mx-auto space-y-8 text-[#111111] font-sans antialiased relative z-10 selection:bg-indigo-100">
@@ -188,6 +281,7 @@ export default function CandidateBrainView({ userId, lang, onChangeTab }: Candid
           <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
           <span>{isFr ? "💼 Phase 28 : Career Intelligence" : "💼 Phase 28: Career Intelligence"}</span>
         </button>
+
       </div>
 
       {subTab === 'cognitive' ? (
@@ -229,7 +323,7 @@ export default function CandidateBrainView({ userId, lang, onChangeTab }: Candid
               </span>
               <div className="flex items-baseline gap-1.5 pt-1 text-amber-600">
                 <Flame className="w-6 h-6 shrink-0 fill-amber-100" />
-                <span className="text-3.5xl font-mono font-black text-stone-900">{motivation.streakCount}</span>
+                <span className="text-3.5xl font-mono font-black text-stone-900">{streakCount}</span>
                 <span className="text-xs font-bold text-stone-400 uppercase tracking-wide">{isFr ? "jours" : "days"}</span>
               </div>
               <p className="text-[10px] text-stone-500 font-bold">
@@ -292,7 +386,7 @@ export default function CandidateBrainView({ userId, lang, onChangeTab }: Candid
                   ))}
                 </div>
 
-                {topCompetency && (
+                {topCompetency && topCompetency.score > 0 && (
                   <div className="p-3.5 bg-emerald-50/50 border border-emerald-200 rounded-xl flex items-start gap-2.5">
                     <Sparkles className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
                     <div className="space-y-0.5">
@@ -365,38 +459,38 @@ export default function CandidateBrainView({ userId, lang, onChangeTab }: Candid
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center">
                   <div className="bg-stone-50 border border-stone-200 p-3.5 rounded-xl space-y-1">
                     <span className="text-[9px] uppercase tracking-wide font-black text-stone-400 block">{isFr ? "Vitesse de Parole" : "Speaking Speed"}</span>
-                    <span className="text-lg font-mono font-black text-stone-900">{communication.averageSpeakingSpeed} wpm</span>
+                    <span className="text-lg font-mono font-black text-stone-900">{hasCompletedSessions ? `${communication.averageSpeakingSpeed} wpm` : '0 wpm'}</span>
                     <span className="text-[8.5px] text-stone-500 block">{isFr ? "Cible : 130-150" : "Target: 130-150"}</span>
                   </div>
 
                   <div className="bg-stone-50 border border-stone-200 p-3.5 rounded-xl space-y-1">
                     <span className="text-[9px] uppercase tracking-wide font-black text-stone-400 block">{isFr ? "Richesse Lexicale" : "Vocabulary Index"}</span>
                     <span className="text-lg font-mono font-black text-stone-900">{communication.vocabularyRichness}%</span>
-                    <span className="text-[8.5px] text-emerald-600 block">{isFr ? "Excellent" : "Robust"}</span>
+                    <span className="text-[8.5px] text-emerald-600 block">{hasCompletedSessions ? (isFr ? "Excellent" : "Robust") : "N/A"}</span>
                   </div>
 
                   <div className="bg-stone-50 border border-stone-200 p-3.5 rounded-xl space-y-1">
                     <span className="text-[9px] uppercase tracking-wide font-black text-stone-400 block">{isFr ? "Structure de Phrase" : "Structure Score"}</span>
                     <span className="text-lg font-mono font-black text-stone-900">{communication.sentenceStructure}%</span>
-                    <span className="text-[8.5px] text-stone-500 block">{isFr ? "Méthode STAR" : "STAR compliant"}</span>
+                    <span className="text-[8.5px] text-stone-500 block">{hasCompletedSessions ? (isFr ? "Méthode STAR" : "STAR compliant") : "N/A"}</span>
                   </div>
 
                   <div className="bg-stone-50 border border-stone-200 p-3.5 rounded-xl space-y-1">
                     <span className="text-[9px] uppercase tracking-wide font-black text-stone-400 block">{isFr ? "Clarté des Réponses" : "Answer Clarity"}</span>
                     <span className="text-lg font-mono font-black text-stone-900">{communication.answerClarity}%</span>
-                    <span className="text-[8.5px] text-indigo-600 block">{isFr ? "Très précis" : "Highly coherent"}</span>
+                    <span className="text-[8.5px] text-indigo-600 block">{hasCompletedSessions ? (isFr ? "Très précis" : "Highly coherent") : "N/A"}</span>
                   </div>
 
                   <div className="bg-stone-50 border border-stone-200 p-3.5 rounded-xl space-y-1">
                     <span className="text-[9px] uppercase tracking-wide font-black text-stone-400 block">{isFr ? "Concision & Focus" : "Conciseness Index"}</span>
                     <span className="text-lg font-mono font-black text-stone-900">{communication.conciseness}%</span>
-                    <span className="text-[8.5px] text-stone-500 block">{isFr ? "Zéro digression" : "Direct & dense"}</span>
+                    <span className="text-[8.5px] text-stone-500 block">{hasCompletedSessions ? (isFr ? "Zéro digression" : "Direct & dense") : "N/A"}</span>
                   </div>
 
                   <div className="bg-stone-50 border border-stone-200 p-3.5 rounded-xl space-y-1">
                     <span className="text-[9px] uppercase tracking-wide font-black text-stone-400 block">{isFr ? "Mots de Remplissage" : "Filler Freq."}</span>
                     <span className="text-lg font-mono font-black text-rose-600">{communication.fillerWordFrequency} /100w</span>
-                    <span className="text-[8.5px] text-stone-500 block">{isFr ? "Cible : < 2.0" : "Target: < 2.0"}</span>
+                    <span className="text-[8.5px] text-stone-500 block">{hasCompletedSessions ? (isFr ? "Cible : < 2.0" : "Target: < 2.0") : "N/A"}</span>
                   </div>
                 </div>
               </div>
@@ -1256,6 +1350,44 @@ export default function CandidateBrainView({ userId, lang, onChangeTab }: Candid
 
           </div>
 
+        </div>
+      )}
+
+      {subTab === 'recruiter' && (
+        <div className="space-y-8 animate-fade-in" id="recruiter-subtab-panel">
+          {/* Phase 29 Introductory Card */}
+          <div className="bg-gradient-to-br from-violet-900 to-indigo-950 border-2 border-stone-950 rounded-3xl p-6 shadow-[5px_5px_0px_0px_rgba(17,17,17,1)] text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div className="space-y-2 text-left max-w-2xl">
+              <span className="font-mono text-[9px] bg-violet-500/20 text-violet-300 border border-violet-500/30 px-2 py-0.5 rounded-full font-bold uppercase tracking-widest">
+                {isFr ? "Phase 29 : Plateforme de Recrutement d'Entreprise" : "Phase 29: Enterprise Recruiter Platform"}
+              </span>
+              <h3 className="font-sans font-black text-lg uppercase tracking-tight text-white">
+                {isFr ? "Intelligence Recruteur B2B & Workspaces Collaboratifs" : "B2B Recruiter Intelligence & Collaborative Workspaces"}
+              </h3>
+              <p className="text-stone-300 text-xs leading-relaxed font-semibold">
+                {isFr
+                  ? "Configurez des modèles d'entretien personnalisés par entreprise, pilotez les équipes d'acquisition de talents, synchronisez vos flux ATS (Applicant Tracking Systems) et optimisez les allocations de licences."
+                  : "Calibrate bespoke corporate interview frameworks, orchestrate multi-tenant talent acquisition teams, synchronize high-fidelity ATS pipelines, and govern active seat licensing allocations."}
+              </p>
+            </div>
+            
+            <button
+              onClick={() => onChangeTab('recruiter-workspace')}
+              className="px-6 py-3.5 bg-white hover:bg-stone-100 text-stone-950 font-black text-xs uppercase tracking-widest rounded-2xl border-2 border-stone-950 shadow-[4px_4px_0px_0px_#111] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_#111] transition-all cursor-pointer flex items-center gap-2 shrink-0 self-start md:self-center"
+            >
+              <Briefcase className="w-4 h-4 text-violet-700 animate-bounce" />
+              <span>{isFr ? "Ouvrir l'Espace Plein Écran" : "Open Workspace Full-Screen"}</span>
+              <ArrowRight className="w-3.5 h-3.5 text-stone-950" />
+            </button>
+          </div>
+
+          {/* Embedded Full Interactive Console */}
+          <div className="bg-white border-2 border-stone-950 p-6 rounded-[32px] shadow-[4px_4px_0px_0px_rgba(17,17,17,1)] text-left">
+            <EnterpriseCenter
+              currentUser={StorageService.getSession()?.user || { id: userId, firstName: 'Candidate', lastName: '', email: 'eocochat@gmail.com', role: 'admin' as const, createdAt: new Date().toISOString() }}
+              lang={lang}
+            />
+          </div>
         </div>
       )}
 

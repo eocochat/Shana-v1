@@ -46,7 +46,7 @@ import EnterpriseCenter from './admin/enterprise/EnterpriseCenter';
 import IntegrationsCenter from './admin/integrations/IntegrationsCenter';
 import ObservabilityCenter from '../../admin/observability/index';
 import { Briefcase, Coins, CreditCard, TrendingUp, Mail } from 'lucide-react';
-import SaaSAnalyticsDashboard from './SaaSAnalyticsDashboard';
+const SaaSAnalyticsDashboard = React.lazy(() => import('./SaaSAnalyticsDashboard'));
 import EmailSimulator from './EmailSimulator';
 import { RecruiterAnalyticsService } from '../lib/recruiter/recruiterAnalytics';
 import { CandidateAnalyticsService } from '../lib/candidate/analytics';
@@ -461,7 +461,7 @@ export default function AdminView({ currentUser, lang = 'FR', onNavigateTab }: A
           { id: 'candidate-intelligence', label: lang === 'FR' ? 'Dossier Apprenant IA' : 'Learner Intelligence', icon: BookOpen },
           { id: 'knowledge-intelligence', label: lang === 'FR' ? 'Interview Genome & Graphe' : 'Interview Genome & Graph', icon: Globe2 },
           { id: 'control-center', label: lang === 'FR' ? 'Platform Control Center' : 'Platform Control Center', icon: Sliders },
-          { id: 'smtp-simulation', label: lang === 'FR' ? 'Canal Simulation SMTP' : 'SMTP Simulation Channel', icon: Mail },
+          { id: 'smtp-simulation', label: lang === 'FR' ? 'Canal d\'Envoi E-mail' : 'Email Dispatch Console', icon: Mail },
           { id: 'settings', label: lang === 'FR' ? 'Paramètres' : 'Settings', icon: Settings },
           { id: 'audit', label: lang === 'FR' ? 'Audit Logs' : 'Audit Logs', icon: FileLock }
         ].map(sub => {
@@ -1517,7 +1517,9 @@ export default function AdminView({ currentUser, lang = 'FR', onNavigateTab }: A
 
         {/* TAB 13.6: SAAS METRICS & ROI ANALYTICS */}
         {activeSubTab === 'saas-metrics' && (
-          <SaaSAnalyticsDashboard currentUserId={currentUser.id} lang={lang === 'FR' ? 'FR' : 'EN'} />
+          <React.Suspense fallback={<div className="p-8 text-center text-sm font-mono text-stone-500 bg-stone-50 border border-dashed border-stone-200 rounded-2xl">Loading SaaS metrics & analytics dashboard...</div>}>
+            <SaaSAnalyticsDashboard currentUserId={currentUser.id} lang={lang === 'FR' ? 'FR' : 'EN'} />
+          </React.Suspense>
         )}
 
         {/* TAB 13.7: RECRUITER INTELLIGENCE DASHBOARD PANEL */}
@@ -1858,22 +1860,22 @@ export default function AdminView({ currentUser, lang = 'FR', onNavigateTab }: A
           <KnowledgeIntelligencePanel lang={lang} />
         )}
 
-        {/* TAB 13.10: SMTP SIMULATION CHANNEL */}
+        {/* TAB 13.10: SMTP & EMAIL DISPATCH CONSOLE */}
         {activeSubTab === 'smtp-simulation' && (
           <div className="space-y-6 text-left">
             <div className="bg-white rounded-2xl border border-stone-200 shadow-xs p-6">
               <div className="border-b border-stone-100 pb-5 mb-6">
-                <span className="inline-flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-widest text-amber-600 font-bold bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200/50 mb-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                  {lang === 'FR' ? "SIMULATEUR INTERACTIF SMTP SÉCURISÉ" : "SECURE SMTP INTERACTIVE SIMULATOR"}
+                <span className="inline-flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-widest text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200/50 mb-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  {lang === 'FR' ? "CONTRÔLE D'ENVOI EMAIL & SMTP RÉEL" : "REAL SMTP & EMAIL DISPATCH CONSOLE"}
                 </span>
                 <h2 className="text-2xl font-sans font-black text-stone-900 tracking-tight">
-                  {lang === 'FR' ? "SMTP Simulation Channel" : "SMTP Simulation Channel"}
+                  {lang === 'FR' ? "Console d'Envoi E-mail & Resend" : "Email Dispatch & Resend Console"}
                 </h2>
                 <p className="text-xs text-[#6B7280] font-medium">
                   {lang === 'FR'
-                    ? "Outil d'administration pour tester l'envoi de mails transactionnels liés aux actions des utilisateurs (inscription, connexion, réinitialisation, score d'évaluation)."
-                    : "Administrative panel to simulate and trace outbound transactional emails triggered by user actions (signup, login, reset, assessment score)."}
+                    ? "Console d'administration pour tester, tracer et superviser l'envoi réel de vos courriels transactionnels via le service Resend et les serveurs SMTP configurés."
+                    : "Administrative control console to test, trace, and monitor real outbound transactional emails dispatched via Resend API and custom SMTP servers."}
                 </p>
               </div>
 

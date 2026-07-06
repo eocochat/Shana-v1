@@ -47,7 +47,7 @@ export default function HistoryView({ history, lang, user }: HistoryViewProps) {
   
   // Interactive Controls State
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [filterType, setFilterType] = useState<'all' | 'assess' | 'train'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'assess' | 'train' | 'cv'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   const defaultUser: UserProfile = {
@@ -143,13 +143,14 @@ export default function HistoryView({ history, lang, user }: HistoryViewProps) {
 
   // Calculate high value aggregate stats for the candidate
   const statistics = useMemo(() => {
-    if (history.length === 0) return { avg: 0, max: 0, count: 0 };
-    const scores = history.map(h => h.score || 0);
+    const scorableHistory = history.filter(h => h.type !== 'CV_PARSE');
+    if (scorableHistory.length === 0) return { avg: 0, max: 0, count: 0 };
+    const scores = scorableHistory.map(h => h.score || 0);
     const sum = scores.reduce((acc, s) => acc + s, 0);
     return {
-      avg: Math.round(sum / history.length),
+      avg: Math.round(sum / scorableHistory.length),
       max: Math.max(...scores),
-      count: history.length
+      count: scorableHistory.length
     };
   }, [history]);
 
@@ -159,6 +160,7 @@ export default function HistoryView({ history, lang, user }: HistoryViewProps) {
       // 1. Format Filter
       if (filterType === 'assess' && item.type !== 'ASSESS') return false;
       if (filterType === 'train' && item.type !== 'TRAIN') return false;
+      if (filterType === 'cv' && item.type !== 'CV_PARSE') return false;
 
       // 2. Search query filter
       if (searchQuery.trim()) {
@@ -346,6 +348,16 @@ export default function HistoryView({ history, lang, user }: HistoryViewProps) {
             >
               {detailTranslations.trainFilter}
             </button>
+            <button
+              onClick={() => setFilterType('cv')}
+              className={`px-3 py-1.5 text-[10px] font-mono uppercase font-black rounded-lg border border-stone-950 transition-all cursor-pointer ${
+                filterType === 'cv'
+                  ? 'bg-[#3B82F6] text-white font-bold shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)]'
+                  : 'bg-white text-stone-700 hover:bg-stone-50'
+              }`}
+            >
+              {lang === 'EN' ? "CV Analysis" : "Analyses de CV"}
+            </button>
           </div>
 
           {/* 2. Interactive Search Box */}
@@ -425,18 +437,22 @@ export default function HistoryView({ history, lang, user }: HistoryViewProps) {
                         <span className={`px-2 py-0.5 text-[8px] font-mono tracking-widest font-black rounded-md uppercase border border-stone-950 shadow-[1px_1px_0px_0px_#111111] ${
                           it.type === 'TRAIN' 
                             ? 'bg-[#EDC154] text-stone-950' 
+                            : it.type === 'CV_PARSE'
+                            ? 'bg-[#3B82F6] text-white'
                             : 'bg-[#FF7E5F] text-stone-950'
                         }`}>
-                          {it.type}
+                          {it.type === 'CV_PARSE' ? (lang === 'EN' ? "CV PARSED" : "CV ANALYSÉ") : it.type}
                         </span>
                         <span className="text-[9px] text-stone-500 font-mono font-bold">
                           {it.date}
                         </span>
                       </div>
-
+ 
                       <h4 className="text-sm font-black text-stone-950 uppercase tracking-tight line-clamp-1">
                         {it.type === 'TRAIN' 
                           ? (lang === 'EN' ? "Voice Simulator Assessment" : "Simulation d'entraînement vocal")
+                          : it.type === 'CV_PARSE'
+                          ? (lang === 'EN' ? "Curriculum Vitae Diagnostic" : "Diagnostic de Curriculum Vitae")
                           : (lang === 'EN' ? "Mirror Focus Evaluation" : "Évaluation miroir de pression")}
                       </h4>
                       <span className="text-[9px] text-stone-400 font-mono font-bold block">
@@ -487,16 +503,20 @@ export default function HistoryView({ history, lang, user }: HistoryViewProps) {
                   <div className="space-y-2.5 pt-1 text-xs">
                     <div>
                       <span className="font-mono text-[8.5px] text-stone-400 uppercase tracking-widest font-black block mb-0.5">
-                        {t.train.weakness}
+                        {it.type === 'CV_PARSE' 
+                          ? (lang === 'EN' ? "PARSED FILE DETAILS" : "DÉTAILS DU FICHIER ANALYSÉ")
+                          : t.train.weakness}
                       </span>
                       <p className="text-stone-800 font-bold leading-relaxed bg-stone-50 p-2.5 rounded-xl border border-stone-200 text-[10px] min-h-[3.2rem] line-clamp-3">
                         {it.weakness}
                       </p>
                     </div>
-
+ 
                     <div>
                       <span className="font-mono text-[8.5px] text-stone-400 uppercase tracking-widest font-black block mb-0.5">
-                        {lang === 'EN' ? "Advisory Directive" : "Directive de Révision"}
+                        {it.type === 'CV_PARSE'
+                          ? (lang === 'EN' ? "CALIBRATED COMPETENCY BLUEPRINT" : "PLAN DE COMPÉTENCE CALIBRÉ")
+                          : (lang === 'EN' ? "Advisory Directive" : "Directive de Révision")}
                       </span>
                       <p className="text-stone-600 leading-relaxed font-bold bg-stone-50 p-2.5 rounded-xl border border-stone-200 italic text-[10px] min-h-[3.2rem] line-clamp-3">
                         "{it.recommendation}"
@@ -508,49 +528,60 @@ export default function HistoryView({ history, lang, user }: HistoryViewProps) {
                   <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-stone-100">
                     
                     {/* 1. Examine full feedback toggle trigger */}
-                    <button
-                      onClick={() => toggleExpand(it.id)}
-                      className="px-3.5 py-1.5 border-2 border-stone-950 hover:bg-stone-50 text-stone-950 text-[9px] font-mono uppercase font-black tracking-wider rounded-xl transition-all shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] active:translate-x-[0.5px] active:translate-y-[0.5px] flex items-center gap-1.5 cursor-pointer"
-                    >
-                      {isExpanded ? (
-                        <>
-                          <EyeOff className="w-3.5 h-3.5 text-stone-950" />
-                          <span>{detailTranslations.hideReport}</span>
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="w-3.5 h-3.5 text-stone-950" />
-                          <span>{detailTranslations.viewReport}</span>
-                        </>
-                      )}
-                    </button>
-
-                    {/* 2. Download cert summary PDF */}
-                    {exportSuccessId === it.id ? (
-                      <div className="bg-emerald-50 border-2 border-emerald-500 text-emerald-800 text-[9px] font-mono uppercase font-black px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 shadow-[1.5px_1.5px_0px_0px_rgba(16,185,129,0.3)]">
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>{detailTranslations.pdfSuccess}</span>
-                      </div>
-                    ) : (
+                    {it.type !== 'CV_PARSE' && (
                       <button
-                        disabled={exportingId === it.id}
-                        onClick={() => handleDownloadPDF(it)}
-                        className="px-3.5 py-1.5 bg-[#A7F3D0] border-2 border-stone-950 hover:bg-[#c2f9df] text-stone-950 text-[9px] font-mono uppercase font-black tracking-wider rounded-xl transition-all shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] active:translate-x-[0.5px] active:translate-y-[0.5px] flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        onClick={() => toggleExpand(it.id)}
+                        className="px-3.5 py-1.5 border-2 border-stone-950 hover:bg-stone-50 text-stone-950 text-[9px] font-mono uppercase font-black tracking-wider rounded-xl transition-all shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] active:translate-x-[0.5px] active:translate-y-[0.5px] flex items-center gap-1.5 cursor-pointer"
                       >
-                        {exportingId === it.id ? (
+                        {isExpanded ? (
                           <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>{detailTranslations.downloading}</span>
+                            <EyeOff className="w-3.5 h-3.5 text-stone-950" />
+                            <span>{detailTranslations.hideReport}</span>
                           </>
                         ) : (
                           <>
-                            <Download className="w-3.5 h-3.5 text-stone-950" />
-                            <span>{detailTranslations.downloadPdf}</span>
+                            <Eye className="w-3.5 h-3.5 text-stone-950" />
+                            <span>{detailTranslations.viewReport}</span>
                           </>
                         )}
                       </button>
                     )}
+ 
+                    {/* 2. Download cert summary PDF */}
+                    {it.type !== 'CV_PARSE' && (
+                      exportSuccessId === it.id ? (
+                        <div className="bg-emerald-50 border-2 border-emerald-500 text-emerald-800 text-[9px] font-mono uppercase font-black px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 shadow-[1.5px_1.5px_0px_0px_rgba(16,185,129,0.3)]">
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>{detailTranslations.pdfSuccess}</span>
+                        </div>
+                      ) : (
+                        <button
+                          disabled={exportingId === it.id}
+                          onClick={() => handleDownloadPDF(it)}
+                          className="px-3.5 py-1.5 bg-[#A7F3D0] border-2 border-stone-950 hover:bg-[#c2f9df] text-stone-950 text-[9px] font-mono uppercase font-black tracking-wider rounded-xl transition-all shadow-[1.5px_1.5px_0px_0px_rgba(17,17,17,1)] active:translate-x-[0.5px] active:translate-y-[0.5px] flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {exportingId === it.id ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>{detailTranslations.downloading}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Download className="w-3.5 h-3.5 text-stone-950" />
+                              <span>{detailTranslations.downloadPdf}</span>
+                            </>
+                          )}
+                        </button>
+                      )
+                    )}
 
+                    {it.type === 'CV_PARSE' && (
+                      <div className="text-[10px] text-stone-500 font-mono font-bold flex items-center gap-1">
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                        <span>{lang === 'EN' ? "Active Competency Ingestion" : "Données d'Aptitude Synchronisées"}</span>
+                      </div>
+                    )}
+ 
                   </div>
 
                   {/* EXPANDED SECTION-BY-SECTION ANALYSIS & PROGRESSION ADVICE */}

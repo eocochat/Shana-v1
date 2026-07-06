@@ -45,7 +45,7 @@ export interface Profile {
   avatarUrl?: string;
 }
 
-export type ActiveTab = 'home' | 'train' | 'assessment' | 'history' | 'profile' | 'admin' | 'purchase' | 'discoveries' | 'candidate-brain';
+export type ActiveTab = 'home' | 'train' | 'assessment' | 'history' | 'profile' | 'admin' | 'purchase' | 'discoveries' | 'candidate-brain' | 'recruiter-workspace';
 
 export interface QuestionFeedbackItem {
   phaseLabel: string;
@@ -63,12 +63,13 @@ export interface QuestionFeedbackItem {
 
 export interface SessionHistoryItem {
   id: string;
-  type: 'TRAIN' | 'ASSESS';
+  type: 'TRAIN' | 'ASSESS' | 'CV_PARSE';
   date: string;
   score: number;
   weakness: string;
   recommendation: string;
   language: Language;
+  timestamp?: number;
   
   // Specific Fields for Evaluation Protocols (Assess mode)
   blueprintId?: string;

@@ -1,8 +1,64 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(email) {
+      return isSignedIn() && request.auth.token.email.toLowerCase() == email.toLowerCase();
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email.toLowerCase() == 'eocochat@gmail.com';
+    }
+
+    // 1. Users collection
+    match /users/{userId} {
+      allow read: if isOwner(resource.data.email) || isAdmin();
+      allow create: if isOwner(request.resource.data.email) || isAdmin();
+      allow update: if (isOwner(resource.data.email) && isOwner(request.resource.data.email)) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // 2. Profiles collection
+    match /profiles/{userId} {
+      allow read: if isOwner(get(/databases/$(database)/documents/users/$(userId)).data.email) || isAdmin();
+      allow create: if isOwner(get(/databases/$(database)/documents/users/$(userId)).data.email) || isAdmin();
+      allow update: if isOwner(get(/databases/$(database)/documents/users/$(userId)).data.email) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // 3. Interview Sessions collection
+    match /interview_sessions/{sessionId} {
+      allow read, write: if isOwner(resource.data.user_email) || isOwner(request.resource.data.user_email) || isAdmin();
+    }
+
+    // 4. Scores collection
+    match /scores/{sessionId} {
+      allow read, write: if isOwner(resource.data.user_email) || isOwner(request.resource.data.user_email) || isAdmin();
+    }
+
+    // 5. Answers collection
+    match /answers/{answerId} {
+      allow read, write: if isOwner(resource.data.user_email) || isOwner(request.resource.data.user_email) || isAdmin();
+    }
+
+    // 6. Insights collection
+    match /insights/{insightId} {
+      allow read, write: if isOwner(resource.data.user_email) || isOwner(request.resource.data.user_email) || isAdmin();
+    }
+
+    // 7. Monetization collection
+    match /monetization/{userId} {
+      allow read, write: if isOwner(resource.data.user_email) || isOwner(request.resource.data.user_email) || isAdmin();
+    }
+
+    // 8. Events collection
+    match /events/{eventId} {
+      allow read, write: if isOwner(resource.data.user_email) || isOwner(request.resource.data.user_email) || isAdmin();
     }
   }
 }

@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { UserProfile, SessionHistoryItem, ActiveTab, Language } from '../types';
 import { StorageService } from '../lib/storage';
 import { useToast } from './Toast';
-import PerformanceRadar from './PerformanceRadar';
-import ProgressChart from './ProgressChart';
+const PerformanceRadar = React.lazy(() => import('./PerformanceRadar'));
+const ProgressChart = React.lazy(() => import('./ProgressChart'));
 import LearningValidationAudit from './LearningValidationAudit';
 import CalendarScheduler from './CalendarScheduler';
 import { 
@@ -292,9 +292,59 @@ export default function DashboardView({
 
   const coachFocus = getCoachFocus();
 
+  const session = StorageService.getSession();
+  const userEmail = session?.user?.email?.toLowerCase().trim() || '';
+  const currentUserRole = session?.user?.role || 'candidate';
+  const isAdmin = currentUserRole === 'admin' || currentUserRole === 'super_admin' || userEmail === 'eocochat@gmail.com' || userEmail === 'superadmin@shana.com' || userEmail === 'admin@shana.com';
+
   return (
     <div id="dashboard-view" className="py-2 max-w-5xl mx-auto space-y-10 text-[#111111] font-sans antialiased relative z-10 selection:bg-[#18633F]/20">
       
+      {/* =========================================
+          ADMIN ACCESS BANNER FOR EASY DISCOVERABILITY
+         ========================================= */}
+      {isAdmin && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-[#EDFDF5] border-2 border-[#18633F]/30 rounded-2xl p-5 shadow-[4px_4px_0px_0px_rgba(24,99,63,0.15)] relative overflow-hidden flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 z-20 cursor-pointer hover:border-[#18633F]/50 transition-all group"
+          onClick={() => onChangeTab('admin')}
+        >
+          <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-48 h-48 bg-[#18633F]/5 rounded-full blur-2xl pointer-events-none" />
+          
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-[#18633F]/10 rounded-xl border border-[#18633F]/20 text-[#18633F] group-hover:scale-110 transition-transform">
+              <Sparkles className="w-6 h-6 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-black uppercase tracking-widest bg-[#D1FAE5] text-[#065F46] px-2.5 py-0.5 rounded-full border border-[#A7F3D0]">
+                  {isFr ? "Accès Administrateur Détecté" : "Administrator Access Detected"}
+                </span>
+              </div>
+              <h3 className="text-base font-black text-stone-900 mt-1.5 leading-tight">
+                {isFr ? "Tableau de bord de Contrôle Admin" : "Admin Command Center"}
+              </h3>
+              <p className="text-xs text-stone-500 mt-1 max-w-xl">
+                {isFr 
+                  ? "Accédez aux statistiques globales, logs système, gestion des utilisateurs et simulateur d'emails."
+                  : "Access global audience analytics, audit logs, system-wide config variables, and simulated email mailboxes."}
+              </p>
+            </div>
+          </div>
+          
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onChangeTab('admin');
+            }}
+            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#18633F] hover:bg-[#124d31] text-white font-black text-xs uppercase tracking-wider border-2 border-stone-950 transition-all cursor-pointer shadow-[3px_3px_0px_0px_#111111] active:translate-x-[1.5px] active:translate-y-[1.5px] active:shadow-[1px_1px_0px_0px_#111111]"
+          >
+            {isFr ? "Ouvrir l'Administration" : "Open Admin Panel"}
+          </button>
+        </motion.div>
+      )}
+
       {/* =========================================
           PREMIUM MINIMAL BACKGROUND GRADIENT BLOBS
          ========================================= */}
@@ -754,12 +804,16 @@ export default function DashboardView({
             >
               {/* Radar Chart Card */}
               <div className="lg:col-span-5 flex flex-col">
-                <PerformanceRadar history={history} lang={lang} />
+                <React.Suspense fallback={<div className="h-[300px] flex items-center justify-center text-xs font-mono text-stone-400 bg-stone-50 border border-dashed border-stone-200 rounded-xl">Loading performance radar...</div>}>
+                  <PerformanceRadar history={history} lang={lang} />
+                </React.Suspense>
               </div>
 
               {/* Progress Line Chart Card */}
               <div className="lg:col-span-7 flex flex-col">
-                <ProgressChart history={history} lang={lang} />
+                <React.Suspense fallback={<div className="h-[300px] flex items-center justify-center text-xs font-mono text-stone-400 bg-stone-50 border border-dashed border-stone-200 rounded-xl">Loading progress chart...</div>}>
+                  <ProgressChart history={history} lang={lang} />
+                </React.Suspense>
               </div>
             </motion.div>
           )}

@@ -25,13 +25,9 @@ export default function SparklineHeaderTrend({ userId, lang }: SparklineHeaderTr
       const chronological = [...scoredSessions].reverse();
 
       if (chronological.length === 0) {
-        // Mock gradual premium onboarding improvement trend
         setData([
-          { score: 58 },
-          { score: 62 },
-          { score: 65 },
-          { score: 71 },
-          { score: 76 }
+          { score: 0 },
+          { score: 0 }
         ]);
       } else if (chronological.length === 1) {
         const current = chronological[0].score;
