@@ -776,7 +776,11 @@ router.delete("/compliance/delete", requirePermission(Permission.ProfileManage),
 
   try {
     const success = await GdprComplianceEngine.executeRightToBeForgotten(session.userId);
-    res.clearCookie("shana_sid");
+    res.clearCookie("shana_sid", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none"
+    });
     gatewayRes.success({ deleted: success }, "Right to be Forgotten executed successfully. Personal data scrubbed.");
   } catch (err: any) {
     gatewayRes.error("DELETION_FAILED", err?.message || "Failed to execute account deletion and data scrubbing", 500);
@@ -992,6 +996,24 @@ registerApiDoc({
   path: "/api/v1/compliance/privacy-config",
   method: "POST",
   description: "Sets global visibility limits, camera stream policies, and consent requirements.",
+  requiresAuth: true
+});
+
+// --- Security Audit Logs ---
+router.get("/security/logs", requirePermission(Permission.SystemMonitor), (req: Request, res: Response) => {
+  const gatewayRes = res as unknown as GatewayResponse;
+  try {
+    const logs = AuditLogger.getAuditLogs();
+    gatewayRes.success(logs, "Security audit logs fetched successfully.");
+  } catch (err: any) {
+    gatewayRes.error("LOGS_FETCH_FAILED", err?.message || "Could not retrieve security audit logs", 500);
+  }
+});
+
+registerApiDoc({
+  path: "/api/v1/security/logs",
+  method: "GET",
+  description: "Retrieves complete immutable cryptographic security audit trail.",
   requiresAuth: true
 });
 

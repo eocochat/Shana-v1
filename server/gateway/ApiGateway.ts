@@ -80,7 +80,14 @@ export function requestLoggerMiddleware(serviceName: string) {
 
     res.on("finish", () => {
       const executionTimeMs = Date.now() - startTime;
-      const userId = req.cookies?.shana_sid || req.body?.userId || (req.query?.userId as string) || "anonymous";
+      
+      let userId = req.cookies?.shana_sid || req.body?.userId || (req.query?.userId as string);
+      if (!userId && req.headers?.authorization) {
+        userId = req.headers.authorization.replace("Bearer ", "").trim();
+      }
+      if (!userId) {
+        userId = "anonymous";
+      }
       
       const logEntry: ApiLog = {
         requestId,

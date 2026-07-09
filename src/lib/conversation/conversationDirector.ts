@@ -16,6 +16,9 @@ import { DigitalTwinEngine } from './digitalTwin';
 import { EvidenceEngine } from './evidenceEngine';
 import { CompetencyCoverageEngine } from './competencyCoverage';
 import { RecruiterDecisionEngine } from './recruiterDecision';
+import { HumanListeningEngine } from './humanListeningEngine';
+import { RecruiterEmpathyEngine } from './recruiterEmpathyEngine';
+import { InterviewPsychologyEngine } from './interviewPsychologyEngine';
 
 export class ConversationDirector {
   /**
@@ -105,7 +108,7 @@ export class ConversationDirector {
     }
 
     // 3. Follow-Up Strategy Analyzer
-    const followUpStrategy = FollowUpEngine.analyzeResponse(userInput, state.contextMemory);
+    const followUpStrategy = FollowUpEngine.analyzeResponse(userInput, state.contextMemory, state, targetRole, industry);
     const isFollowUp = (followUpStrategy.category !== 'Clarification');
     
     // Add current follow-up theme to topics already discussed to avoid duplicates
@@ -115,6 +118,55 @@ export class ConversationDirector {
 
     // 4. Emotional State Assessment
     state.emotionState = EmotionEngine.analyzeText(userInput, state.emotionState);
+
+    // 4.1 Run Human Listening Engine Analysis (HIU Phase 5)
+    const listeningAnalysis = HumanListeningEngine.analyzeListeningTurn(
+      userInput,
+      elapsedTurnSeconds * 1000,
+      state.emotionState,
+      state.currentTurn,
+      state.personality?.id || 'corporate'
+    );
+    state.listeningState = listeningAnalysis.listeningState;
+    state.silenceType = listeningAnalysis.silenceType;
+    state.flowPrediction = listeningAnalysis.prediction;
+    state.avatarListeningEvent = listeningAnalysis.activeAvatarEvent;
+    
+    if (!state.listeningObservations) {
+      state.listeningObservations = [];
+    }
+    state.listeningObservations.push(listeningAnalysis.listeningInsight);
+
+    // 4.2 Run Recruiter Empathy Engine Analysis (HIU Phase 6)
+    const empathyAnalysis = RecruiterEmpathyEngine.evaluateEmpathyTurn(
+      state,
+      userInput,
+      language
+    );
+    state.empathyMetrics = empathyAnalysis.metrics;
+    if (!state.empathyObservations) {
+      state.empathyObservations = [];
+    }
+    state.empathyObservations.push(empathyAnalysis.empathyInsight);
+
+    // 4.3 Run Interview Psychology Engine Analysis (HIU Phase 8)
+    const psychologyAnalysis = InterviewPsychologyEngine.analyzeTurn(
+      userInput,
+      state.recruiterNotes[state.recruiterNotes.length - 1]?.textEN || "Please tell me about your background.",
+      state,
+      language === 'French' || language === 'FR' || language === 'fr' ? 'FR' : 'EN'
+    );
+    state.psychologyAssessment = psychologyAnalysis.assessment;
+    state.behavioralSignals = psychologyAnalysis.behavioral;
+    state.authenticitySignals = psychologyAnalysis.authenticity;
+    state.recruiterStrategyReasoning = psychologyAnalysis.strategy;
+    if (!state.psychologicalInsightsHistory) {
+      state.psychologicalInsightsHistory = [];
+    }
+    state.psychologicalInsightsHistory = [
+      ...state.psychologicalInsightsHistory,
+      ...psychologyAnalysis.insights
+    ];
 
     // 5. Dynamic Pressure Tuner
     state.pressureLevel = PressureEngine.calculatePressure(
@@ -135,6 +187,24 @@ export class ConversationDirector {
       state.coachingData
     );
 
+    // Update coaching data listening counts and insights
+    if (!state.coachingData.listeningInsights) {
+      state.coachingData.listeningInsights = [];
+    }
+    state.coachingData.listeningInsights.push(listeningAnalysis.listeningInsight);
+    if (listeningAnalysis.silenceType === 'Thinking' || listeningAnalysis.silenceType === 'MemoryRecall') {
+      state.coachingData.thinkingPausesCount = (state.coachingData.thinkingPausesCount || 0) + 1;
+    }
+    if (listeningAnalysis.listeningState === 'reflecting' || listeningAnalysis.silenceType === 'EmotionalPause') {
+      state.coachingData.reflectionPausesCount = (state.coachingData.reflectionPausesCount || 0) + 1;
+    }
+
+    // Update coaching data with empathy insights
+    if (!state.coachingData.empathyInsights) {
+      state.coachingData.empathyInsights = [];
+    }
+    state.coachingData.empathyInsights.push(empathyAnalysis.empathyInsight);
+
     // 7. Continuous Recruiter Notes Engine
     const newNotes = RecruiterNotesManager.generateTurnNotes(
       userInput,
@@ -143,6 +213,22 @@ export class ConversationDirector {
       fillerWordsCount
     );
     state.recruiterNotes = [...state.recruiterNotes, ...newNotes];
+
+    // Append listening insight note
+    state.recruiterNotes.push({
+      category: 'observation',
+      textEN: `[Listening Observation] ${listeningAnalysis.listeningInsight}`,
+      textFR: `[Observation d'Écoute] ${listeningAnalysis.listeningInsight}`,
+      timestamp: new Date().toLocaleTimeString()
+    });
+
+    // Append empathy insight note
+    state.recruiterNotes.push({
+      category: 'observation',
+      textEN: `[Empathy Observation] ${empathyAnalysis.empathyInsight}`,
+      textFR: `[Observation d'Empathie] ${empathyAnalysis.empathyInsight}`,
+      timestamp: new Date().toLocaleTimeString()
+    });
 
     // 8. Turn Transition Manager
     state = TurnManager.transitionToAI(state);
@@ -156,11 +242,16 @@ export class ConversationDirector {
       isFollowUp,
       isInterrupted,
       state.pressureLevel,
-      elapsedTurnSeconds
+      elapsedTurnSeconds,
+      listeningAnalysis.silenceType,
+      listeningAnalysis.listeningState,
+      empathyAnalysis.metrics,
+      empathyAnalysis.hasDifficultMoment,
+      empathyAnalysis.encouragementEarned
     );
 
     // 9.1 Run Recruiter Brain (Layer 1)
-    const currentBrainTurn = RecruiterBrainEngine.processTurn(state, userInput, targetRole);
+    const currentBrainTurn = RecruiterBrainEngine.processTurn(state, userInput, targetRole, language);
     state.recruiterBrainTurns = [...(state.recruiterBrainTurns || []), currentBrainTurn];
 
     // 9.2 Update Candidate Digital Twin (Layer 2)
@@ -186,7 +277,7 @@ export class ConversationDirector {
         .filter(r => r.competency === currentBrainTurn.competencyVerified)
         .map(r => r.description),
       confidence: currentBrainTurn.credibilityScore,
-      behavior: `Confidence: ${state.emotionState.confidence}%, Stress: ${state.emotionState.stress}%`,
+      behavior: `Confidence: ${state.emotionState.confidence}%, Stress: ${state.emotionState.stress}%, Vibe: ${state.emotionState.primaryVibe || 'neutral'}`,
       outcome: currentBrainTurn.stance === 'challenge' ? 'Pushed with deep-dive challenge' : 'Competency approved, proceeding'
     };
     state.interviewGenome = [...(state.interviewGenome || []), currentGenomeTurn];
@@ -199,6 +290,17 @@ export class ConversationDirector {
     let customizedDirectives = isEng 
       ? `\n[FOLLOW-UP DIRECTIVE (Category: ${followUpStrategy.category})]:\n${followUpStrategy.directiveEN}`
       : `\n[RELANCE DIRECTIVE (Catégorie: ${followUpStrategy.category})]:\n${followUpStrategy.directiveFR}`;
+
+    // Append Empathy Engine Directives (HIU Phase 6)
+    customizedDirectives += `\n\n${empathyAnalysis.activeEmpathyDirective}`;
+
+    // Append Psychology Engine Directives (HIU Phase 8)
+    const psychologyDirective = InterviewPsychologyEngine.generatePsychologyDirective(
+      psychologyAnalysis.assessment,
+      psychologyAnalysis.strategy,
+      language === 'French' || language === 'FR' || language === 'fr' ? 'FR' : 'EN'
+    );
+    customizedDirectives += `\n\n${psychologyDirective}`;
 
     if (reflectionResult.directivesEN && isEng) {
       customizedDirectives += `\n\n[SELF-REFLECTION RECTIFICATION]:\n${reflectionResult.directivesEN}`;

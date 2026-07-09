@@ -98,7 +98,7 @@ export class CandidateBrain {
   /**
    * Finalizes the interview session and seals the learning iteration.
    */
-  public static finalizeSession(userId: string, overallScore: number): void {
+  public static async finalizeSession(userId: string, overallScore: number): Promise<void> {
     const state = CandidateProfileService.getCandidateState(userId);
 
     // Boost overall competencies slightly if the candidate score is high
@@ -117,6 +117,15 @@ export class CandidateBrain {
     MilestoneEngine.evaluateMilestones(state);
     RecommendationEngine.updateRecommendations(state);
 
+    // Save baseline state
     CandidateProfileService.saveCandidateState(userId, state);
+
+    try {
+      // Fetch user performance data dynamically from Firestore to update coaching with evidence-based insights
+      await CoachingStrategyEngine.updateCoachingWithFirestoreData(userId, state);
+      CandidateProfileService.saveCandidateState(userId, state);
+    } catch (err) {
+      console.warn('[SHANA CandidateBrain] Async Firestore coaching finalization bypassed:', err);
+    }
   }
 }

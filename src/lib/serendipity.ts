@@ -627,8 +627,12 @@ export const SerendipityService = {
       hint = "Try letting the recruiter finish speaking, then answer.";
     } else if (state.answerDuration >= 150) {
       hint = "Try answering directly to improve your conciseness score.";
-    } else if (state.hesitationTime >= 10) {
+    } else if (state.hesitationTime >= 12) {
+      hint = "Pacing is a bit slow. Try to speak with more energetic flow.";
+    } else if (state.hesitationTime >= 7) {
       hint = "Try using a single structural example to get started.";
+    } else if (state.fillerWordsCount >= 5) {
+      hint = "Pacing is a bit rushed. Try to slow down your speaking rate.";
     } else if (state.fillerWordsCount >= 3) {
       hint = "Try taking a slight breath to reduce verbal fillers.";
     }

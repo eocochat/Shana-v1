@@ -40,7 +40,9 @@ import {
   Server,
   Key,
   Terminal,
-  ArrowRight
+  ArrowRight,
+  Brain,
+  Heart
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -106,7 +108,7 @@ interface AIRequestLog {
 
 export default function SaaSAnalyticsDashboard({ currentUserId, lang }: SaaSAnalyticsDashboardProps) {
   // Global Filters & Settings
-  const [activeTab, setActiveTab] = useState<'users' | 'ai' | 'revenue' | 'system' | 'flags' | 'experiments' | 'security' | 'support'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'ai' | 'revenue' | 'system' | 'flags' | 'experiments' | 'security' | 'support' | 'convIntel'>('users');
   const [dateRange, setDateRange] = useState<'24h' | '7d' | '30d' | 'all'>('7d');
   const [userSegment, setUserSegment] = useState<'all' | 'free' | 'pro' | 'enterprise'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -726,6 +728,7 @@ export default function SaaSAnalyticsDashboard({ currentUserId, lang }: SaaSAnal
           {[
             { id: 'users', label: lang === 'EN' ? 'User Management' : 'Utilisateurs', icon: Users, badge: userList.length },
             { id: 'ai', label: lang === 'EN' ? 'AI Analytics' : 'Analyses IA', icon: Sparkles, badge: '99%' },
+            { id: 'convIntel', label: lang === 'EN' ? 'Conversation Intelligence' : 'Analyse de Conversation', icon: Brain, badge: 'V2.0' },
             { id: 'revenue', label: lang === 'EN' ? 'Revenue & Billing' : 'Finances & Factures', icon: CreditCard, badge: `$${(revenueTotalValue / 1000).toFixed(1)}k` },
             { id: 'system', label: lang === 'EN' ? 'System Health' : 'Santé Système', icon: Cpu, badge: 'OK' },
             { id: 'flags', label: lang === 'EN' ? 'Feature Flags Control' : 'Contrôle Flags', icon: Sliders, badge: flags.length },
@@ -1056,6 +1059,233 @@ export default function SaaSAnalyticsDashboard({ currentUserId, lang }: SaaSAnal
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================
+                  MODULE 2.5: CONVERSATION INTELLIGENCE ANALYTICS (HIU PHASE 2)
+                  ======================================================= */}
+              {activeTab === 'convIntel' && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[9px] font-black bg-rose-500 text-white px-2 py-0.5 rounded-sm uppercase tracking-wider">
+                          HIU PHASE 2 ACTIVE
+                        </span>
+                        <h3 className="font-sans font-black text-lg text-stone-900 tracking-tight">
+                          {lang === 'EN' ? "Human Conversation Intelligence (HIU)" : "Intelligence de Conversation Humaine (HIU)"}
+                        </h3>
+                      </div>
+                      <p className="text-xs text-stone-400 font-medium">
+                        {lang === 'EN' ? "Monitor the Conversation Intelligence Engine 2.0, active listening logs, dynamic transitions, and memory tracking." : "Supervisez le moteur de conversation 2.0, l'écoute active, les transitions fluides et la mémoire à court terme."}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Core Conversation KPI Cards */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+                    <div className="p-4 bg-stone-50 border border-stone-200 rounded-2xl">
+                      <span className="text-[9px] font-mono font-bold uppercase text-stone-400 block">
+                        {lang === 'EN' ? "Naturalness Score" : "Score de Naturel"}
+                      </span>
+                      <span className="font-sans font-black text-2xl text-stone-950 mt-1 block">
+                        94.2%
+                      </span>
+                      <div className="w-full bg-stone-200 h-1.5 rounded-full mt-2 overflow-hidden">
+                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: '94.2%' }}></div>
+                      </div>
+                      <span className="text-[9px] font-mono font-semibold text-emerald-600 mt-1.5 block">
+                        ▲ +8.4% {lang === 'EN' ? "vs V1.5 engine" : "vs moteur V1.5"}
+                      </span>
+                    </div>
+
+                    <div className="p-4 bg-stone-50 border border-stone-200 rounded-2xl">
+                      <span className="text-[9px] font-mono font-bold uppercase text-stone-400 block">
+                        {lang === 'EN' ? "Reaction Diversity" : "Diversité des Réactions"}
+                      </span>
+                      <span className="font-sans font-black text-2xl text-indigo-600 mt-1 block">
+                        89.5%
+                      </span>
+                      <div className="w-full bg-stone-200 h-1.5 rounded-full mt-2 overflow-hidden">
+                        <div className="bg-violet-500 h-full rounded-full" style={{ width: '89.5%' }}></div>
+                      </div>
+                      <span className="text-[9px] font-mono font-semibold text-stone-400 mt-1.5 block">
+                        {lang === 'EN' ? "7 primary emotion vectors" : "7 vecteurs d'émotions actifs"}
+                      </span>
+                    </div>
+
+                    <div className="p-4 bg-stone-50 border border-stone-200 rounded-2xl">
+                      <span className="text-[9px] font-mono font-bold uppercase text-stone-400 block">
+                        {lang === 'EN' ? "Context Memory Usage" : "Utilisation de la Mémoire"}
+                      </span>
+                      <span className="font-sans font-black text-2xl text-stone-950 mt-1 block">
+                        12.4 KB
+                      </span>
+                      <div className="w-full bg-stone-200 h-1.5 rounded-full mt-2 overflow-hidden">
+                        <div className="bg-stone-700 h-full rounded-full" style={{ width: '86%' }}></div>
+                      </div>
+                      <span className="text-[9px] font-mono font-semibold text-emerald-600 mt-1.5 block">
+                        86% {lang === 'EN' ? "short-term recall rate" : "de rappel à court terme"}
+                      </span>
+                    </div>
+
+                    <div className="p-4 bg-stone-50 border border-stone-200 rounded-2xl">
+                      <span className="text-[9px] font-mono font-bold uppercase text-stone-400 block">
+                        {lang === 'EN' ? "Avg Conversation Length" : "Longueur Moyenne d'Entretien"}
+                      </span>
+                      <span className="font-sans font-black text-2xl text-stone-950 mt-1 block">
+                        14.5 turns
+                      </span>
+                      <div className="w-full bg-stone-200 h-1.5 rounded-full mt-2 overflow-hidden">
+                        <div className="bg-indigo-500 h-full rounded-full" style={{ width: '72%' }}></div>
+                      </div>
+                      <span className="text-[9px] font-mono font-semibold text-indigo-600 mt-1.5 block">
+                        ● {lang === 'EN' ? "Perfect pacing target" : "Rythme cible optimal"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Radar Chart & Key Metric Sliders Side-by-Side */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* Radar Chart Panel */}
+                    <div className="lg:col-span-7 bg-stone-50 border border-stone-200 rounded-2xl p-5 space-y-4">
+                      <span className="text-[10px] font-mono font-extrabold text-stone-800 uppercase tracking-wider block border-b border-stone-200 pb-2">
+                        {lang === 'EN' ? "Conversational Quality Assessment Index" : "Indice d'Évaluation de la Qualité Conversationnelle"}
+                      </span>
+                      <div className="h-64 flex items-center justify-center">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <RadarChart cx="50%" cy="50%" outerRadius="80%" data={[
+                            { subject: lang === 'EN' ? 'Naturalness' : 'Naturel', A: 94, B: 72 },
+                            { subject: lang === 'EN' ? 'Reaction Diversity' : 'Diversité', A: 89, B: 55 },
+                            { subject: lang === 'EN' ? 'Follow-up Quality' : 'Suivi', A: 92, B: 68 },
+                            { subject: lang === 'EN' ? 'Transition Quality' : 'Transitions', A: 91, B: 60 },
+                            { subject: lang === 'EN' ? 'Flow Score' : 'Flux', A: 95, B: 70 },
+                            { subject: lang === 'EN' ? 'Listening Quality' : 'Écoute active', A: 93, B: 64 },
+                          ]}>
+                            <PolarGrid stroke="#E5E7EB" />
+                            <PolarAngleAxis dataKey="subject" stroke="#4B5563" fontSize={10} />
+                            <PolarRadiusAxis angle={30} domain={[0, 100]} fontSize={8} stroke="#9CA3AF" />
+                            <Radar name="SHANA Engine 2.0" dataKey="A" stroke="#EC4899" fill="#EC4899" fillOpacity={0.4} />
+                            <Radar name="SHANA Engine 1.5" dataKey="B" stroke="#6B7280" fill="#9CA3AF" fillOpacity={0.2} />
+                            <Legend wrapperStyle={{ fontSize: '10px', marginTop: '10px' }} />
+                          </RadarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* Detailed Conversation Engine Sliders */}
+                    <div className="lg:col-span-5 bg-stone-50 border border-stone-200 rounded-2xl p-5 space-y-4">
+                      <span className="text-[10px] font-mono font-extrabold text-stone-800 uppercase tracking-wider block border-b border-stone-200 pb-2">
+                        {lang === 'EN' ? "Humanization Control Factors" : "Facteurs de Contrôle de l'Humanisation"}
+                      </span>
+
+                      <div className="space-y-4">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-sans font-bold text-stone-700">{lang === 'EN' ? "Reaction Diversity" : "Diversité des Réactions"}</span>
+                            <span className="text-xs font-mono font-black text-rose-600">89%</span>
+                          </div>
+                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                            <div className="bg-rose-500 h-full" style={{ width: '89%' }}></div>
+                          </div>
+                          <p className="text-[9px] text-stone-400 leading-normal">
+                            {lang === 'EN' ? "Evaluates variability in expressions of curiosity, interest, surprise, admiration and encouragement." : "Évalue la variété des expressions de curiosité, intérêt, surprise, admiration et encouragements."}
+                          </p>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-sans font-bold text-stone-700">{lang === 'EN' ? "Follow-up Quality Rating" : "Pertinence des Relances"}</span>
+                            <span className="text-xs font-mono font-black text-indigo-600">92%</span>
+                          </div>
+                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                            <div className="bg-indigo-500 h-full" style={{ width: '92%' }}></div>
+                          </div>
+                          <p className="text-[9px] text-stone-400 leading-normal">
+                            {lang === 'EN' ? "Dynamic relevance of follow-up questions formulated from candidate achievements and trade-offs." : "Pertinence dynamique des relances formulées à partir des réalisations et des compromis cités."}
+                          </p>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-sans font-bold text-stone-700">{lang === 'EN' ? "Transition Quality Index" : "Qualité des Transitions"}</span>
+                            <span className="text-xs font-mono font-black text-emerald-600">91%</span>
+                          </div>
+                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                            <div className="bg-emerald-500 h-full" style={{ width: '91%' }}></div>
+                          </div>
+                          <p className="text-[9px] text-stone-400 leading-normal">
+                            {lang === 'EN' ? "Seamlessness of shifting between subjects and connecting back to previously mentioned items." : "Fluidité du passage d'un sujet à l'autre et reconnexion aux éléments mentionnés plus tôt."}
+                          </p>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-sans font-bold text-stone-700">{lang === 'EN' ? "Interruption Accuracy" : "Précision des Interruptions"}</span>
+                            <span className="text-xs font-mono font-black text-amber-600">88%</span>
+                          </div>
+                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                            <div className="bg-amber-500 h-full" style={{ width: '88%' }}></div>
+                          </div>
+                          <p className="text-[9px] text-stone-400 leading-normal">
+                            {lang === 'EN' ? "Polite interruption trigger score when the candidate repeats themself or drifts far off-topic." : "Pertinence du déclenchement des interruptions polies si le candidat se répète ou s'éloigne du sujet."}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Active Listening & Reaction logs */}
+                  <div className="bg-stone-50 border border-stone-200 rounded-2xl p-4.5 space-y-3">
+                    <span className="text-[10px] font-mono font-extrabold text-stone-850 uppercase tracking-wider block border-b border-stone-200 pb-2">
+                      {lang === 'EN' ? "HIU 2.0 Active Listening & Cognitive Memory Journal" : "Journal de l'Écoute Active et de la Mémoire Cognitive HIU 2.0"}
+                    </span>
+                    <div className="overflow-x-auto text-xs">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-stone-100 border-b border-stone-200 font-mono text-[9px] text-stone-400 uppercase font-bold">
+                            <th className="px-3 py-2 rounded-l-md">{lang === 'EN' ? "Conversation Stimulus" : "Stimulus Candidat"}</th>
+                            <th className="px-3 py-2">{lang === 'EN' ? "Acknowledge Vibe" : "Vibe d'Accusé Réception"}</th>
+                            <th className="px-3 py-2">{lang === 'EN' ? "Dynamic Follow-up formulated" : "Relance Dynamique Formulée"}</th>
+                            <th className="px-3 py-2 rounded-r-md font-bold text-stone-900 text-right">{lang === 'EN' ? "Reaction Vector" : "Vecteur de Réaction"}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-150 font-bold text-stone-700">
+                          <tr className="hover:bg-stone-100/40">
+                            <td className="px-3 py-2.5 text-stone-900">
+                              "I managed a team of 18 engineers during a legacy cloud migration."
+                            </td>
+                            <td className="px-3 py-2.5 text-violet-600 font-mono">Respectful</td>
+                            <td className="px-3 py-2.5 font-medium">
+                              "Eighteen engineers is a significant team. What kind of leadership challenges came with that?"
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-emerald-600">Professional Admiration</td>
+                          </tr>
+                          <tr className="hover:bg-stone-100/40">
+                            <td className="px-3 py-2.5 text-stone-900">
+                              "We reduced production hotfix deployment times by 60% in two quarters."
+                            </td>
+                            <td className="px-3 py-2.5 text-violet-600 font-mono">Surprised</td>
+                            <td className="px-3 py-2.5 font-medium">
+                              "That's an impressive improvement. How did you convince the organization to adopt those changes?"
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-emerald-600">Encouragement</td>
+                          </tr>
+                          <tr className="hover:bg-stone-100/40">
+                            <td className="px-3 py-2.5 text-stone-900">
+                              "To be honest, the previous launch was a total failure. I had to let two designers go."
+                            </td>
+                            <td className="px-3 py-2.5 text-violet-600 font-mono">Thoughtful</td>
+                            <td className="px-3 py-2.5 font-medium">
+                              "I appreciate your honesty. What did that experience teach you about team alignment under pressure?"
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-emerald-600">Curiosity / Empathy</td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>

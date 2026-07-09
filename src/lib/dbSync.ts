@@ -17,8 +17,11 @@ import {
 } from 'firebase/auth';
 import { User, Profile, SessionHistoryItem } from '../types';
 
+let isFirebaseAuthAvailable = true;
+
 export async function ensureFirebaseAuth(email: string, id: string): Promise<void> {
   if (!auth) return;
+  if (!isFirebaseAuthAvailable) return;
   if (auth.currentUser && auth.currentUser.email?.toLowerCase() === email.toLowerCase()) {
     return;
   }
@@ -30,6 +33,16 @@ export async function ensureFirebaseAuth(email: string, id: string): Promise<voi
     await signInWithEmailAndPassword(auth, email.toLowerCase().trim(), password);
     console.log('[SHANA Firebase] Successfully authenticated to Firebase Auth.');
   } catch (err: any) {
+    if (err.code === 'auth/operation-not-allowed' || err.message?.includes('operation-not-allowed')) {
+      isFirebaseAuthAvailable = false;
+      console.warn(
+        `[SHANA Firebase] Email/Password Sign-In method is not enabled in your Firebase Console.\n` +
+        `To enable sync, please go to:\n` +
+        `https://console.firebase.google.com/project/ai-studio-shana-fa62adec-2a3c-46e2-bafe-14d10bd1461e/authentication/providers\n` +
+        `and enable the "Email/Password" provider. SHANA will gracefully run in offline-first mode (LocalStorage) for now.`
+      );
+      return;
+    }
     if (
       err.code === 'auth/user-not-found' || 
       err.code === 'auth/invalid-credential' || 
@@ -42,10 +55,20 @@ export async function ensureFirebaseAuth(email: string, id: string): Promise<voi
         await createUserWithEmailAndPassword(auth, email.toLowerCase().trim(), password);
         console.log('[SHANA Firebase] Successfully registered new account in Firebase Auth.');
       } catch (regErr: any) {
-        console.error('[SHANA Firebase] Failed to auto-register Firebase Auth user:', regErr);
+        if (regErr.code === 'auth/operation-not-allowed' || regErr.message?.includes('operation-not-allowed')) {
+          isFirebaseAuthAvailable = false;
+          console.warn(
+            `[SHANA Firebase] Email/Password Sign-In method is not enabled in your Firebase Console.\n` +
+            `To enable sync, please go to:\n` +
+            `https://console.firebase.google.com/project/ai-studio-shana-fa62adec-2a3c-46e2-bafe-14d10bd1461e/authentication/providers\n` +
+            `and enable the "Email/Password" provider. SHANA will gracefully run in offline-first mode (LocalStorage) for now.`
+          );
+          return;
+        }
+        console.warn('[SHANA Firebase] Failed to auto-register Firebase Auth user:', regErr);
       }
     } else {
-      console.error('[SHANA Firebase] Firebase Auth auto-login failed:', err);
+      console.warn('[SHANA Firebase] Firebase Auth auto-login failed:', err);
     }
   }
 }
@@ -120,8 +143,10 @@ export const DbSyncManager = {
    */
   async saveUserAndProfile(user: User, profile: Profile, cvData?: any) {
     if (!user || !user.id) return;
+    if (!isFirebaseAuthAvailable) return;
 
     await ensureFirebaseAuth(user.email, user.id);
+    if (!isFirebaseAuthAvailable) return;
 
     try {
       // 1. Create/Update core users collection document
@@ -177,6 +202,7 @@ export const DbSyncManager = {
    */
   async saveSessionToCloud(userId: string, session: SessionHistoryItem) {
     if (!userId || !session || !session.id) return;
+    if (!isFirebaseAuthAvailable) return;
 
     // Get email
     const usersStr = localStorage.getItem('shana_users') || '[]';
@@ -277,6 +303,7 @@ export const DbSyncManager = {
    */
   async saveInsightToCloud(userId: string, discovery: any) {
     if (!userId || !discovery || !discovery.id) return;
+    if (!isFirebaseAuthAvailable) return;
 
     // Get email
     const usersStr = localStorage.getItem('shana_users') || '[]';
@@ -320,6 +347,7 @@ export const DbSyncManager = {
    */
   async saveMonetizationToCloud(userId: string, monetization: any) {
     if (!userId || !monetization) return;
+    if (!isFirebaseAuthAvailable) return;
 
     // Get email
     const usersStr = localStorage.getItem('shana_users') || '[]';
@@ -370,6 +398,7 @@ export const DbSyncManager = {
    */
   async syncCloudToLocal(userId: string): Promise<boolean> {
     if (!userId) return false;
+    if (!isFirebaseAuthAvailable) return false;
 
     // Get email
     const usersStr = localStorage.getItem('shana_users') || '[]';
@@ -654,6 +683,7 @@ export const DbSyncManager = {
    */
   async syncUserByEmail(email: string): Promise<string | null> {
     if (!email) return null;
+    if (!isFirebaseAuthAvailable) return null;
     try {
       const q = query(collection(db, 'users'), where('email', '==', email.toLowerCase().trim()));
       const snap = await getDocs(q);
@@ -665,7 +695,7 @@ export const DbSyncManager = {
         return userId;
       }
     } catch (err) {
-      console.error('[SHANA DbSync] Failed to sync user by email:', err);
+      console.warn('[SHANA DbSync] Failed to sync user by email:', err);
     }
     return null;
   }

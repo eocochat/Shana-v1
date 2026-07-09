@@ -81,40 +81,43 @@ export default function AICompanion({ user, lang, onTabChange }: AICompanionProp
   const [isTyping, setIsTyping] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Suggested pre-set questions
+  // Suggested pre-set questions dynamically tailored to the user's role and industry search
+  const targetRoleName = user.targetRole || (isFrench ? "Manager" : "Manager");
+  const industryName = user.industry || (isFrench ? "Technologie" : "Technology");
+
   const presetQuestions = isFrench ? [
     {
-      q: "Comment gérer le stress de l'entretien ?",
-      a: "Pour dompter le stress, appliquez la méthode du 'Centrage Miroir' : prenez 3 respirations diaphragmatiques lentes avant de parler. Shana valorise le silence de transition plutôt que les mots de remplissage ('euh', 'du coup'). Prenez votre temps !"
+      q: `Comment réussir mon entretien de ${targetRoleName} ?`,
+      a: `Pour réussir votre entretien en tant que ${targetRoleName}, Shana analyse votre leadership, votre débit de parole (110-140 mots/min) et votre charisme verbal. Utilisez la méthode STAR pour démontrer vos accomplissements opérationnels concrets.`
     },
     {
-      q: "Comment structurer une réponse complexe ?",
-      a: "Utilisez la formule STAR : Situation, Tâche, Action, Résultat. Consacrez 15% au contexte, 65% à vos actions personnelles concrètes, et 20% aux résultats mesurables obtenus."
+      q: `Quelles compétences clés en ${industryName} sont évaluées ?`,
+      a: `Pour le secteur ${industryName}, je scrute votre communication d'équipe, votre réactivité sous pression et votre sens de l'analyse. Nos exercices vocaux stimulent précisément ces marqueurs de confiance.`
     },
     {
-      q: "Comment Shana évalue-t-elle ma clarté ?",
-      a: "J'analyse le rythme verbal (viser 110 à 140 mots par minute) et le spectre de confiance de votre voix. Une bonne articulation combinée à une posture bienveillante optimise votre score d'éligibilité !"
+      q: `Quelles questions pièges pour un rôle de ${targetRoleName} ?`,
+      a: `Attendez-vous à des questions comportementales comme : 'Comment gérez-vous un conflit sous pression ?' ou 'Détaillez un défi opérationnel majeur'. Lancez notre simulation pour vous entraîner en conditions réelles !`
     },
     {
       q: "Quel entraînement faire aujourd'hui ?",
-      a: "Je vous recommande de faire notre 'Simulation d'entraînement vocal' (onglet Vocal) pour délier votre voix, ou une 'Mise en situation d'évaluation' complète sous contrainte de temps !"
+      a: "Je vous conseille de lancer une 'Simulation d'Entretien Réel' ou notre 'Mise en situation d'évaluation' dans l'onglet Évaluation pour tester vos réflexes vocaux immédiatement !"
     }
   ] : [
     {
-      q: "How do I handle interview stress?",
-      a: "To master stress, use our 'Mirror Centering' technique: take 3 deep diaphragmatic breaths before answering. Shana values a purposeful pause over filler words ('um', 'like'). Take your time!"
+      q: `How do I succeed in my ${targetRoleName} interview?`,
+      a: `To excel as a ${targetRoleName}, focus on active structural clarity and metric-driven answers. Shana evaluates your leadership metrics, vocal confidence, and transition flow. Take slow diaphragmatic breaths to ground your pitch.`
     },
     {
-      q: "How should I structure complex answers?",
-      a: "Use the STAR framework: Situation, Task, Action, Result. Allocate 15% to context, 65% to your concrete personal actions, and 20% to measurable results."
+      q: `What key skills in ${industryName} does Shana measure?`,
+      a: `In the ${industryName} field, I specifically test for strategic problem-solving, real-time adaptability, and composed cross-functional leadership. Practice with our voice modules to optimize these indicators.`
     },
     {
-      q: "How does Shana evaluate my clarity?",
-      a: "I measure your speech tempo (aiming for 110-140 words per minute) and vocal confidence. Strong articulation combined with a composed cadence maximizes your competency score!"
+      q: `Common tricky questions for a ${targetRoleName} role?`,
+      a: `Expect behavioral questions like: 'Describe a time you solved a high-pressure conflict.' or 'How do you prioritize deliverables?' Try the Live Simulator to test your answers in real time!`
     },
     {
       q: "What practice should I do today?",
-      a: "I recommend doing a 'Voice Simulator' drill to warm up your tone, or going for a full 'Production Evaluation Suite' to test your performance under pressure!"
+      a: "I highly recommend running a full 'Real-time AI Voice Analysis' session in the Assess tab to put your verbal fluency and confidence to the test!"
     }
   ];
 
@@ -225,6 +228,10 @@ export default function AICompanion({ user, lang, onTabChange }: AICompanionProp
 
       if (matchedPreset) {
         reply = matchedPreset.a;
+      } else if (lowerText.includes('conseil') || lowerText.includes('piège') || lowerText.includes('question') || lowerText.includes('advice') || lowerText.includes('tricky') || lowerText.includes('tip') || lowerText.includes('réussir') || lowerText.includes('succeed')) {
+        reply = isFrench
+          ? `Pour un poste de ${targetRoleName} dans le secteur ${industryName}, Shana vous conseille de travailler sur la concision. Ne dépassez pas 2 minutes par réponse. Un conseil clé : illustrez vos compétences par des projets récents où vous avez pris l'initiative et mesuré vos résultats !`
+          : `For a ${targetRoleName} role in the ${industryName} sector, Shana recommends keeping answers under 2 minutes. A key tip: always ground your answers with projects where you took ownership and measured results!`;
       } else if (lowerText.includes('resume') || lowerText.includes('reprendre') || lowerText.includes('fini') || lowerText.includes('finish')) {
         if (hasUnfinishedSession) {
           reply = isFrench
@@ -255,8 +262,8 @@ export default function AICompanion({ user, lang, onTabChange }: AICompanionProp
       } else {
         // Dynamic fallback response using role information
         reply = isFrench
-          ? `En tant que futur candidat pour un poste dans le domaine de la ${user.industry || 'Technologie'} (${user.targetRole || 'Manager'}), l'essentiel est de parler de manière posée et de structurer vos réussites avec des indicateurs chiffrés. N'hésitez pas à lancer un entraînement pour tester votre impact !`
-          : `As an aspiring candidate in the ${user.industry || 'Technology'} field looking to lock in a ${user.targetRole || 'Manager'} role, the key is structured delivery with metrics. Try running a focused drill now to perfect your conversational flow!`;
+          ? `En tant que futur candidat pour un poste de ${targetRoleName} dans le domaine ${industryName}, l'essentiel est d'exprimer vos réponses avec clarté, d'utiliser la méthode STAR et d'adapter votre voix pour inspirer confiance. Je suis prête à vous écouter si vous souhaitez vous entraîner !`
+          : `As an aspiring candidate for a ${targetRoleName} position in the ${industryName} field, the key is delivering clear, STAR-structured responses and using confident voice modulation. I am ready to evaluate you in our simulation when you are!`;
       }
 
       setChatMessages(prev => [...prev, {

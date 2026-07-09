@@ -19,6 +19,20 @@ export class PressureEngine {
     score -= (emotionState.hesitation - 50) * 0.2;
     score += (emotionState.engagement - 50) * 0.1;
 
+    // Advanced compound emotional parameters fine-tune the pressure level
+    if (emotionState.cognitiveLoad && emotionState.cognitiveLoad > 65) {
+      score -= (emotionState.cognitiveLoad - 50) * 0.35; // lower pressure if cognitively overloaded
+    }
+    if (emotionState.imposterIndex && emotionState.imposterIndex > 58) {
+      score -= (emotionState.imposterIndex - 50) * 0.25; // lower pressure for self-minimizing strain
+    }
+    if (emotionState.defensiveness && emotionState.defensiveness > 50) {
+      score -= (emotionState.defensiveness - 50) * 0.2; // lower pressure to de-escalate defensiveness
+    }
+    if (emotionState.flowStateRating && emotionState.flowStateRating > 72) {
+      score += (emotionState.flowStateRating - 50) * 0.3; // increase pressure constructs if in peak flow state
+    }
+
     // Difficulty baseline weighting
     if (difficulty === 'Easy') score -= 20;
     if (difficulty === 'Hard') score += 20;

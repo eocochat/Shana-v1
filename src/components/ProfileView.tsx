@@ -8,6 +8,7 @@ import { StorageService } from '../lib/storage';
 import CheckoutModal from './CheckoutModal';
 import { RestorePurchaseService } from '../services/commerce/RestorePurchaseService';
 import SubscriptionPortal from '../modules/upgrade/SubscriptionPortal';
+import RelationshipMemoryCenter from './RelationshipMemoryCenter';
 
 const AVATAR_PRESETS = [
   { id: 'gradient-blue', name: 'Blue Sky', className: 'bg-gradient-to-tr from-blue-500 to-indigo-600' },
@@ -1329,6 +1330,11 @@ export default function ProfileView({ user, lang, onChangeLang, onUpdateProfile,
             <Trash2 className="w-4 h-4" />
             <span>{lang === 'FR' ? "Réinitialiser tous les compteurs (À ZÉRO)" : "Reset all user counters (TO ZERO)"}</span>
           </button>
+        </div>
+
+        {/* Relationship Memory Center Component */}
+        <div className="pt-6 border-t-2 border-stone-950">
+          <RelationshipMemoryCenter userId={uId} lang={lang} />
         </div>
 
         {/* GDPR Privacy Control Section */}

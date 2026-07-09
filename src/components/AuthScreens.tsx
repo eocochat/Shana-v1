@@ -135,6 +135,7 @@ export default function AuthScreens({ initialView = 'login', prefilledUser, onLo
   const [surpriseConfig, setSurpriseConfig] = useState<any>(null);
   const [refreshToggle, setRefreshToggle] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
+  const [activeDrillId, setActiveDrillId] = useState<string | null>(null);
   const [cvVersions, setCvVersions] = useState<any[]>([]);
   const { addToast } = useToast();
   const { checkMilestones } = useMilestoneTracker(currentUser?.id || null);
@@ -757,7 +758,15 @@ export default function AuthScreens({ initialView = 'login', prefilledUser, onLo
                 <CandidateBrainView
                   userId={currentUser.id}
                   lang={currentProfile.language === 'French' ? 'FR' : 'EN'}
-                  onChangeTab={setActiveTab}
+                  onChangeTab={(tabArg) => {
+                    if (tabArg && typeof tabArg === 'object') {
+                      setActiveTab(tabArg.tab);
+                      setActiveDrillId(tabArg.drillId);
+                    } else {
+                      setActiveTab(tabArg);
+                      setActiveDrillId(null);
+                    }
+                  }}
                 />
               )}
               
@@ -766,13 +775,16 @@ export default function AuthScreens({ initialView = 'login', prefilledUser, onLo
                   currentUser={currentUser}
                   currentProfile={currentProfile}
                   blueprint={StorageService.getBlueprint(currentUser.id)}
+                  drillId={activeDrillId || undefined}
                   onBack={() => {
                     setActiveTab('home');
+                    setActiveDrillId(null);
                   }}
                   onSessionSaved={() => {
                     setRefreshToggle(prev => !prev);
                     checkMilestones({ isNewSession: true });
                     setActiveTab('home');
+                    setActiveDrillId(null);
                   }}
                 />
               )}

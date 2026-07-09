@@ -46,7 +46,8 @@ import {
   Activity,
   UserCheck,
   ArrowRight,
-  Coins
+  Coins,
+  Wifi
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import CheckoutModal from './CheckoutModal';
@@ -257,6 +258,13 @@ export default function AssessmentView({ user, lang, onSessionComplete, onChange
     cameraDevices: MediaDeviceInfo[];
     micDevices: MediaDeviceInfo[];
     errorDetails: string | null;
+    network?: {
+      latencyHistory: number[];
+      avgLatency: number;
+      jitter: number;
+      packetLoss: number;
+      quality: 'excellent' | 'good' | 'poor';
+    };
   } | null>(null);
 
   // loading simulation text sequences
@@ -343,6 +351,13 @@ export default function AssessmentView({ user, lang, onSessionComplete, onChange
       cameraDevices: MediaDeviceInfo[];
       micDevices: MediaDeviceInfo[];
       errorDetails: string | null;
+      network?: {
+        latencyHistory: number[];
+        avgLatency: number;
+        jitter: number;
+        packetLoss: number;
+        quality: 'excellent' | 'good' | 'poor';
+      };
     } = {
       browserSupportsMedia: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
       cameraAccess: 'blocked',
@@ -414,6 +429,67 @@ export default function AssessmentView({ user, lang, onSessionComplete, onChange
         }
       }
     }
+
+    // Test Network Latency, Jitter, and Packet Loss
+    const latencyHistory: number[] = [];
+    let lostPackets = 0;
+    const totalPings = 5;
+
+    for (let i = 0; i < totalPings; i++) {
+      const startPing = performance.now();
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+        const res = await fetch(`/api/ping?t=${Date.now()}&i=${i}`, {
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const endPing = performance.now();
+          latencyHistory.push(Math.round(endPing - startPing));
+        } else {
+          lostPackets++;
+        }
+      } catch (err) {
+        lostPackets++;
+      }
+      // Brief delay between pings to simulate real sequential interval testing
+      await new Promise(r => setTimeout(r, 120));
+    }
+
+    const avgLatency = latencyHistory.length > 0 
+      ? Math.round(latencyHistory.reduce((sum, val) => sum + val, 0) / latencyHistory.length) 
+      : 999;
+
+    // Calculate RFC 1889 jitter
+    let jitter = 0;
+    if (latencyHistory.length > 1) {
+      let sumDiff = 0;
+      for (let i = 1; i < latencyHistory.length; i++) {
+        sumDiff += Math.abs(latencyHistory[i] - latencyHistory[i - 1]);
+      }
+      jitter = Math.round(sumDiff / (latencyHistory.length - 1));
+    }
+
+    const packetLoss = Math.round((lostPackets / totalPings) * 100);
+
+    let networkQuality: 'excellent' | 'good' | 'poor' = 'poor';
+    if (packetLoss === 0 && avgLatency <= 80 && jitter <= 15) {
+      networkQuality = 'excellent';
+    } else if (packetLoss <= 20 && avgLatency <= 150 && jitter <= 30) {
+      networkQuality = 'good';
+    } else {
+      networkQuality = 'poor';
+    }
+
+    results.network = {
+      latencyHistory,
+      avgLatency,
+      jitter,
+      packetLoss,
+      quality: networkQuality
+    };
 
     setDiagnosticResults(results);
     setDiagnosticLoading(false);
@@ -2768,9 +2844,30 @@ export default function AssessmentView({ user, lang, onSessionComplete, onChange
                 {/* Browser Support Row */}
                 <div className="flex items-center justify-between p-3.5 bg-stone-50 border-2 border-stone-950 rounded-2xl shadow-[2px_2px_0px_0px_rgba(17,17,17,1)]">
                   <div className="space-y-0.5 text-left">
-                    <p className="font-black text-stone-950">
-                      {lang === 'EN' ? "Browser Media Capabilities" : "Compatibilité du Navigateur"}
-                    </p>
+                    <div className="font-black text-stone-950 flex items-center gap-1.5 relative group">
+                      <span>{lang === 'EN' ? "Browser Media Capabilities" : "Compatibilité du Navigateur"}</span>
+                      <span className="relative inline-block cursor-help">
+                        <Info className="w-3.5 h-3.5 text-stone-500 hover:text-stone-950 transition-colors" />
+                        {/* Tooltip component */}
+                        <span className="absolute left-1/2 bottom-full mb-2 -translate-x-1/2 w-72 p-3.5 bg-stone-900 border border-stone-950 text-stone-100 rounded-xl text-[10.5px] font-medium leading-relaxed opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-200 shadow-xl z-50">
+                          <span className="block font-black text-amber-400 mb-1.5 font-mono text-[9px] uppercase tracking-wider">
+                            {lang === 'EN' ? "🔍 WEBRTC STANDARDS CHECKED" : "🔍 NORMES WEBRTC ANALYSÉES"}
+                          </span>
+                          <ul className="list-disc list-inside space-y-1.5 text-stone-300">
+                            <li>
+                              <strong>MediaDevices API:</strong> {lang === 'EN' ? "Checks available webcam and microphone input devices." : "Vérifie les caméras et microphones disponibles."}
+                            </li>
+                            <li>
+                              <strong>getUserMedia():</strong> {lang === 'EN' ? "Verifies low-latency audio/video capture permission capability." : "Vérifie la capacité de capture audio/vidéo sécurisée."}
+                            </li>
+                            <li>
+                              <strong>HD Audio/Video Codecs:</strong> {lang === 'EN' ? "Checks support for high-fidelity audio (Opus) and video encoding formats." : "Vérifie la compatibilité des formats Opus HD et vidéo."}
+                            </li>
+                          </ul>
+                          <span className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-stone-900" />
+                        </span>
+                      </span>
+                    </div>
                     <p className="text-[10.5px] text-[#6B7280]">
                       {lang === 'EN' ? "Detecting modern WebRTC standards" : "Détection des API standards WebRTC"}
                     </p>
@@ -2896,6 +2993,127 @@ export default function AssessmentView({ user, lang, onSessionComplete, onChange
                     </div>
                   </div>
 
+                </div>
+
+                {/* Real-time Network Latency Check Section */}
+                <div className="p-4 border-2 border-stone-950 rounded-2xl bg-stone-50 shadow-[2px_2px_0px_0px_rgba(17,17,17,1)] space-y-4 text-left">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-[#FED7AA] border border-stone-950 text-stone-950 rounded-lg">
+                        <Activity className="w-4 h-4" />
+                      </div>
+                      <span className="font-black text-stone-950">
+                        {lang === 'EN' ? "Network Stability Check" : "Stabilité de la Connexion"}
+                      </span>
+                    </div>
+
+                    {diagnosticLoading ? (
+                      <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase font-black text-stone-500">
+                        <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" />
+                        <span>{lang === 'EN' ? "Testing Line..." : "Test de Ligne..."}</span>
+                      </div>
+                    ) : diagnosticResults?.network ? (
+                      diagnosticResults.network.quality === 'excellent' ? (
+                        <span className="px-2 py-0.5 bg-emerald-100 border-2 border-stone-950 text-emerald-800 rounded-md font-mono text-[9px] uppercase font-black tracking-wider flex items-center gap-1 shadow-[1px_1px_0px_0px_rgba(17,17,17,1)]">
+                          <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse border border-stone-950" />
+                          {lang === 'EN' ? "Excellent Connection" : "Connexion Excellente"}
+                        </span>
+                      ) : diagnosticResults.network.quality === 'good' ? (
+                        <span className="px-2 py-0.5 bg-amber-100 border-2 border-stone-950 text-amber-800 rounded-md font-mono text-[9px] uppercase font-black tracking-wider flex items-center gap-1 shadow-[1px_1px_0px_0px_rgba(17,17,17,1)]">
+                          <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse border border-stone-950" />
+                          {lang === 'EN' ? "Good Connection" : "Connexion Stable"}
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 bg-red-100 border-2 border-stone-950 text-red-700 rounded-md font-mono text-[9px] uppercase font-black tracking-wider flex items-center gap-1 shadow-[1px_1px_0px_0px_rgba(17,17,17,1)]">
+                          <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse border border-stone-950" />
+                          {lang === 'EN' ? "Unstable Connection" : "Connexion Instable"}
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-zinc-400 font-mono text-[9px]">—</span>
+                    )}
+                  </div>
+
+                  {/* Network stats row */}
+                  <div className="grid grid-cols-3 gap-2 bg-white border-2 border-stone-950 p-3 rounded-xl shadow-[1px_1px_0px_0px_rgba(17,17,17,1)]">
+                    <div className="text-center space-y-0.5 border-r border-stone-200">
+                      <p className="text-[9px] uppercase font-mono text-stone-400 font-black">
+                        {lang === 'EN' ? "LATENCY" : "LATENCE"}
+                      </p>
+                      {diagnosticLoading ? (
+                        <p className="font-mono text-xs font-black text-stone-500 animate-pulse">...</p>
+                      ) : diagnosticResults?.network ? (
+                        <p className={`font-mono text-sm font-black ${
+                          diagnosticResults.network.avgLatency < 80 ? 'text-emerald-600' :
+                          diagnosticResults.network.avgLatency < 150 ? 'text-amber-600' : 'text-red-600'
+                        }`}>
+                          {diagnosticResults.network.avgLatency}ms
+                        </p>
+                      ) : (
+                        <p className="font-mono text-xs font-black text-stone-300">—</p>
+                      )}
+                    </div>
+
+                    <div className="text-center space-y-0.5 border-r border-stone-200">
+                      <p className="text-[9px] uppercase font-mono text-stone-400 font-black">
+                        {lang === 'EN' ? "JITTER" : "GIGUE (JITTER)"}
+                      </p>
+                      {diagnosticLoading ? (
+                        <p className="font-mono text-xs font-black text-stone-500 animate-pulse">...</p>
+                      ) : diagnosticResults?.network ? (
+                        <p className={`font-mono text-sm font-black ${
+                          diagnosticResults.network.jitter <= 15 ? 'text-emerald-600' :
+                          diagnosticResults.network.jitter <= 30 ? 'text-amber-600' : 'text-red-600'
+                        }`}>
+                          {diagnosticResults.network.jitter}ms
+                        </p>
+                      ) : (
+                        <p className="font-mono text-xs font-black text-stone-300">—</p>
+                      )}
+                    </div>
+
+                    <div className="text-center space-y-0.5">
+                      <p className="text-[9px] uppercase font-mono text-stone-400 font-black">
+                        {lang === 'EN' ? "PACKET LOSS" : "PERTE DE PAQUETS"}
+                      </p>
+                      {diagnosticLoading ? (
+                        <p className="font-mono text-xs font-black text-stone-500 animate-pulse">...</p>
+                      ) : diagnosticResults?.network ? (
+                        <p className={`font-mono text-sm font-black ${
+                          diagnosticResults.network.packetLoss === 0 ? 'text-emerald-600' :
+                          diagnosticResults.network.packetLoss <= 10 ? 'text-amber-600' : 'text-red-600'
+                        }`}>
+                          {diagnosticResults.network.packetLoss}%
+                        </p>
+                      ) : (
+                        <p className="font-mono text-xs font-black text-stone-300">—</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Recommendation block depending on quality */}
+                  {diagnosticResults?.network && (
+                    <div className="p-3 rounded-xl border border-stone-200 bg-white space-y-1 text-[11px] leading-relaxed">
+                      <p className="font-black text-stone-800">
+                        {lang === 'EN' ? "Interview Suitability Analysis:" : "Analyse de Compatibilité d'Entretien :"}
+                      </p>
+                      <p className="text-stone-600 font-medium">
+                        {diagnosticResults.network.quality === 'excellent' ? (
+                          lang === 'EN' 
+                            ? "Your connection quality is excellent. Bandwidth capability and ping stability are optimal for full-fidelity real-time audio synthesis and sub-second video processing."
+                            : "Qualité de connexion exceptionnelle. La latence et la gigue sont optimales pour l'entretien vidéo HD interactif et la synchronisation vocale sub-seconde."
+                        ) : diagnosticResults.network.quality === 'good' ? (
+                          lang === 'EN'
+                            ? "Your connection is stable and fully sufficient for video interviews. If possible, avoid heavy downloads or streaming activities on your network during the session."
+                            : "Connexion stable et suffisante. Pour une expérience optimale, nous vous recommandons d'éviter les téléchargements ou le streaming en arrière-plan pendant l'entretien."
+                        ) : (
+                          lang === 'EN'
+                            ? "Caution: High latency or packet loss detected. We strongly suggest connecting to a 5G/Fiber network or a wired connection (Ethernet), or moving closer to your Wi-Fi router."
+                            : "Attention : Latence élevée ou perte de paquets détectée. Nous vous suggérons d'utiliser une connexion filaire (Ethernet), de vous rapprocher de votre borne Wi-Fi, ou de basculer sur un réseau 4G/5G stable."
+                        )}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* HELPFUL STEP-BY-STEP ACCESS RECOVERY INSTRUCTIONS */}

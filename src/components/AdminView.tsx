@@ -30,7 +30,9 @@ import {
   Tv,
   Eye,
   CheckCircle2,
-  Bookmark
+  Bookmark,
+  Award,
+  Sparkles
 } from 'lucide-react';
 import { User, Profile, CVAnalysis } from '../types';
 import { StorageService } from '../lib/storage';
@@ -45,13 +47,21 @@ import PaymentsCenter from './admin/payments/PaymentsCenter';
 import EnterpriseCenter from './admin/enterprise/EnterpriseCenter';
 import IntegrationsCenter from './admin/integrations/IntegrationsCenter';
 import ObservabilityCenter from '../../admin/observability/index';
-import { Briefcase, Coins, CreditCard, TrendingUp, Mail } from 'lucide-react';
+import { Briefcase, Coins, CreditCard, TrendingUp, Mail, Volume2, Heart, Brain } from 'lucide-react';
 const SaaSAnalyticsDashboard = React.lazy(() => import('./SaaSAnalyticsDashboard'));
 import EmailSimulator from './EmailSimulator';
 import { RecruiterAnalyticsService } from '../lib/recruiter/recruiterAnalytics';
 import { CandidateAnalyticsService } from '../lib/candidate/analytics';
 import { KnowledgeGraph } from '../lib/knowledge/knowledgeGraph';
 import KnowledgeIntelligencePanel from './admin/KnowledgeIntelligencePanel';
+import EvaluationIntelligencePanel from './admin/EvaluationIntelligencePanel';
+import LearningIntelligenceCenter from './admin/LearningIntelligenceCenter';
+import VoiceIntelligenceCenter from './admin/VoiceIntelligenceCenter';
+import InterviewRealismCenter from './admin/InterviewRealismCenter';
+import SecurityOperationsCenter from './admin/security/SecurityOperationsCenter';
+import ReleaseReadinessCenter from './admin/release/ReleaseReadinessCenter';
+import RelationshipIntelligencePanel from './admin/RelationshipIntelligencePanel';
+import EmotionalIntelligencePanel from './admin/EmotionalIntelligencePanel';
 
 interface AdminViewProps {
   currentUser: User;
@@ -59,7 +69,7 @@ interface AdminViewProps {
   onNavigateTab: (tab: any) => void;
 }
 
-type AdminSubTab = 'dashboard' | 'users' | 'interviews' | 'settings' | 'audit' | 'control-center' | 'ai-operations' | 'trust' | 'business' | 'monetization' | 'payments' | 'enterprise' | 'integrations' | 'observability' | 'saas-metrics' | 'recruiter-intelligence' | 'candidate-intelligence' | 'knowledge-intelligence' | 'smtp-simulation';
+type AdminSubTab = 'dashboard' | 'users' | 'interviews' | 'settings' | 'audit' | 'control-center' | 'ai-operations' | 'trust' | 'business' | 'monetization' | 'payments' | 'enterprise' | 'integrations' | 'observability' | 'saas-metrics' | 'recruiter-intelligence' | 'candidate-intelligence' | 'knowledge-intelligence' | 'smtp-simulation' | 'evaluation-intelligence' | 'learning-intelligence' | 'voice-intelligence' | 'interview-realism' | 'security-center' | 'release-center' | 'relationship-intelligence' | 'emotional-intelligence';
 
 export default function AdminView({ currentUser, lang = 'FR', onNavigateTab }: AdminViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<AdminSubTab>('dashboard');
@@ -450,6 +460,7 @@ export default function AdminView({ currentUser, lang = 'FR', onNavigateTab }: A
           { id: 'interviews', label: lang === 'FR' ? 'Entretiens (Live)' : 'Live Monitoring', icon: Video },
           { id: 'ai-operations', label: lang === 'FR' ? 'AIOps Center' : 'AIOps Center', icon: Activity },
           { id: 'trust', label: lang === 'FR' ? 'Espace Confiance (GDPR)' : 'Trust & Compliance', icon: Shield },
+          { id: 'security-center', label: lang === 'FR' ? 'Centre Sécurité (SOC)' : 'Security Ops Center (SOC)', icon: ShieldCheck },
           { id: 'business', label: lang === 'FR' ? 'Business & Ops' : 'Business & Ops', icon: Briefcase },
           { id: 'monetization', label: lang === 'FR' ? 'Monétisation' : 'Monetization', icon: Coins },
           { id: 'payments', label: lang === 'FR' ? 'Paiements & Commerce' : 'Payments & Commerce', icon: CreditCard },
@@ -458,9 +469,16 @@ export default function AdminView({ currentUser, lang = 'FR', onNavigateTab }: A
           { id: 'observability', label: lang === 'FR' ? 'Supervision & Logs' : 'Observability Center', icon: Activity },
           { id: 'saas-metrics', label: lang === 'FR' ? 'Analyses SaaS & ROI' : 'SaaS Metrics & ROI', icon: TrendingUp },
           { id: 'recruiter-intelligence', label: lang === 'FR' ? 'Recruteur IA Brain' : 'Recruiter Brain', icon: Cpu },
+          { id: 'relationship-intelligence', label: lang === 'FR' ? 'Mémoire Relationnelle Center' : 'Relationship Memory Center', icon: Brain },
+          { id: 'emotional-intelligence', label: lang === 'FR' ? 'Intelligence Émotionnelle' : 'Emotional Intelligence Center', icon: Heart },
+          { id: 'evaluation-intelligence', label: lang === 'FR' ? 'Intelligence d\'Évaluation' : 'Evaluation Intelligence', icon: Award },
+          { id: 'learning-intelligence', label: lang === 'FR' ? 'Intelligence Apprenante Center' : 'Learning Intelligence Center', icon: Sparkles },
+          { id: 'voice-intelligence', label: lang === 'FR' ? 'Voice Intelligence Center' : 'Voice Intelligence Center', icon: Volume2 },
+          { id: 'interview-realism', label: lang === 'FR' ? "Réalisme de l'Entretien" : "Interview Realism Center", icon: Heart },
           { id: 'candidate-intelligence', label: lang === 'FR' ? 'Dossier Apprenant IA' : 'Learner Intelligence', icon: BookOpen },
           { id: 'knowledge-intelligence', label: lang === 'FR' ? 'Interview Genome & Graphe' : 'Interview Genome & Graph', icon: Globe2 },
           { id: 'control-center', label: lang === 'FR' ? 'Platform Control Center' : 'Platform Control Center', icon: Sliders },
+          { id: 'release-center', label: lang === 'FR' ? 'Launch Control Center (V1.0)' : 'Launch Control Center (V1.0)', icon: CheckCircle },
           { id: 'smtp-simulation', label: lang === 'FR' ? 'Canal d\'Envoi E-mail' : 'Email Dispatch Console', icon: Mail },
           { id: 'settings', label: lang === 'FR' ? 'Paramètres' : 'Settings', icon: Settings },
           { id: 'audit', label: lang === 'FR' ? 'Audit Logs' : 'Audit Logs', icon: FileLock }
@@ -1475,6 +1493,11 @@ export default function AdminView({ currentUser, lang = 'FR', onNavigateTab }: A
           <ControlCenter currentUser={currentUser} lang={lang} />
         )}
 
+        {/* TAB 6.5: RELEASE READINESS CENTER */}
+        {activeSubTab === 'release-center' && (
+          <ReleaseReadinessCenter currentUser={currentUser} lang={lang} />
+        )}
+
         {/* TAB 7: AI OPERATIONS CENTER (AIOps) */}
         {activeSubTab === 'ai-operations' && (
           <AIOperations currentUser={currentUser} lang={lang} />
@@ -1483,6 +1506,11 @@ export default function AdminView({ currentUser, lang = 'FR', onNavigateTab }: A
         {/* TAB 8: TRUST & COMPLIANCE CENTER */}
         {activeSubTab === 'trust' && (
           <TrustCenter currentUser={currentUser} lang={lang} />
+        )}
+
+        {/* TAB 8.5: SECURITY OPERATIONS CENTER (SOC) */}
+        {activeSubTab === 'security-center' && (
+          <SecurityOperationsCenter currentUser={currentUser} lang={lang} />
         )}
 
         {/* TAB 9: BUSINESS & OPERATIONS CENTER */}
@@ -1703,6 +1731,36 @@ export default function AdminView({ currentUser, lang = 'FR', onNavigateTab }: A
             </div>
           );
         })()}
+
+        {/* TAB 13.7.5: EVALUATION INTELLIGENCE METRICS PANEL */}
+        {activeSubTab === 'evaluation-intelligence' && (
+          <EvaluationIntelligencePanel lang={lang === 'FR' ? 'FR' : 'EN'} />
+        )}
+
+        {/* TAB 13.7.5.5: EMOTIONAL INTELLIGENCE ANALYTICS */}
+        {activeSubTab === 'emotional-intelligence' && (
+          <EmotionalIntelligencePanel lang={lang === 'FR' ? 'FR' : 'EN'} />
+        )}
+
+        {/* TAB 13.7.6: LEARNING INTELLIGENCE CENTER */}
+        {activeSubTab === 'learning-intelligence' && (
+          <LearningIntelligenceCenter lang={lang === 'FR' ? 'FR' : 'EN'} />
+        )}
+
+        {/* TAB 13.7.7: VOICE INTELLIGENCE CENTER */}
+        {activeSubTab === 'voice-intelligence' && (
+          <VoiceIntelligenceCenter lang={lang === 'FR' ? 'FR' : 'EN'} />
+        )}
+
+        {/* TAB 13.7.8.5: RELATIONSHIP INTELLIGENCE CENTER */}
+        {activeSubTab === 'relationship-intelligence' && (
+          <RelationshipIntelligencePanel lang={lang === 'FR' ? 'FR' : 'EN'} />
+        )}
+
+        {/* TAB 13.7.8: INTERVIEW REALISM CENTER */}
+        {activeSubTab === 'interview-realism' && (
+          <InterviewRealismCenter lang={lang === 'FR' ? 'FR' : 'EN'} />
+        )}
 
         {/* TAB 13.8: CANDIDATE INTELLIGENCE DASHBOARD PANEL */}
         {activeSubTab === 'candidate-intelligence' && (() => {

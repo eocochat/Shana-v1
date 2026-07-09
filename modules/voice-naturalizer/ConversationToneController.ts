@@ -19,14 +19,21 @@ export class ConversationToneController {
    * Adjusts the tone of the sentence to match a professional, neutral recruiter.
    * Replaces robotic or overly hyper-supportive/motivational phrases.
    */
-  public static adjustTone(text: string, isFrench: boolean = false): string {
+  public static adjustTone(text: string, isFrench: boolean = false, recruiterId: string = "corporate", stage: string = "core"): string {
     if (!text) return "";
 
-    let adjusted = text;
-    const replacements = isFrench ? this.frenchReplacements : this.englishReplacements;
+    const isWarmPersona = ["friendly", "prod_dir", "university", "hospital_mgr", "hotel_gm", "customer_support"].includes(recruiterId);
+    const isCoach = stage === "coach_transition" || text.toLowerCase().includes("coaching") || text.toLowerCase().includes("session d'entraînement");
 
-    for (const item of replacements) {
-      adjusted = adjusted.replace(item.pattern, item.replacement);
+    let adjusted = text;
+
+    // Only apply dry neutral replacements if NOT a warm supportive persona and NOT in coaching mode
+    if (!isWarmPersona && !isCoach) {
+      const replacements = isFrench ? this.frenchReplacements : this.englishReplacements;
+
+      for (const item of replacements) {
+        adjusted = adjusted.replace(item.pattern, item.replacement);
+      }
     }
 
     // Clean up duplicate confirmations if we replaced multiple back-to-back

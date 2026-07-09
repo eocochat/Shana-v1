@@ -81,10 +81,15 @@ export const AccessController = {
  */
 export function PermissionMiddleware(requiredRole: UserRole) {
   return (req: any, res: any, next: NextFunction) => {
-    // Read the session cookie shana_sid (set in login flow)
-    const userId = req.cookies && req.cookies.shana_sid;
+    // Read the session cookie shana_sid (set in login flow) or Authorization header
+    let userId = req.cookies && req.cookies.shana_sid;
+    if (!userId && req.headers && req.headers.authorization) {
+      const authHeader = req.headers.authorization;
+      userId = authHeader.replace("Bearer ", "").trim();
+    }
+
     if (!userId) {
-      return res.status(401).json({ error: "Unauthorized: Active session shana_sid cookie is missing." });
+      return res.status(401).json({ error: "Unauthorized: Active session shana_sid cookie or Authorization header is missing." });
     }
 
     // Retrieve user from database

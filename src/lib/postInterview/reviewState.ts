@@ -4,8 +4,12 @@ export interface CompetencyBehindTheDecision {
   id: string;
   name: string;
   score: number;
+  confidenceLevel: number;
   evidenceCollected: string[];
   evidenceMissing: string[];
+  transcriptReferences: string[];
+  observedBehaviors: string[];
+  improvementPlan: string[];
   whyThisScore: string;
   calculationMethod: string;
   oneActionToIncrease: string;

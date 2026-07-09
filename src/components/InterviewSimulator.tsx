@@ -140,6 +140,127 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
   // Before Session Serendipity Suggestion
   const [beforeSuggestion, setBeforeSuggestion] = useState<string | null>(null);
 
+  // HIU Phase 11 - Human Presence Engine State
+  const [presenceState, setPresenceState] = useState<{
+    behavior: 'idle' | 'blinking' | 'nodding' | 'note-taking' | 'smiling' | 'looking-up' | 'pausing' | 'backchannel';
+    subtextEN: string;
+    subtextFR: string;
+    backchannelWord?: string;
+  }>({
+    behavior: 'idle',
+    subtextEN: 'Active focus, breathing naturally',
+    subtextFR: 'Focalisation active, respiration naturelle'
+  });
+
+  useEffect(() => {
+    let interval: any = null;
+
+    if (isLoading) {
+      // Recruiter is thinking / formulating question
+      setPresenceState({
+        behavior: 'looking-up',
+        subtextEN: 'Looking up thoughtfully to frame a highly structured follow-up question...',
+        subtextFR: 'Regard pensif, structuration d\'une relance ciblée...'
+      });
+
+      // After 2.5 seconds of thinking, show a natural pause/deep breath behavior
+      interval = setTimeout(() => {
+        setPresenceState({
+          behavior: 'pausing',
+          subtextEN: 'Natural pause before delivering a difficult question...',
+          subtextFR: 'Pause de temporisation naturelle avant de formuler la question...'
+        });
+      }, 2500);
+
+    } else if (isListening) {
+      // Candidate is speaking (recruiter is listening)
+      setPresenceState({
+        behavior: 'nodding',
+        subtextEN: 'Nodding along in active listening...',
+        subtextFR: 'Hochements de tête d\'approbation et d\'écoute active...'
+      });
+
+      let turnCount = 0;
+      interval = setInterval(() => {
+        turnCount++;
+        const index = turnCount % 4;
+        if (index === 0) {
+          setPresenceState({
+            behavior: 'note-taking',
+            subtextEN: 'Taking brief notes on your key arguments...',
+            subtextFR: 'Prise de notes rapide sur vos arguments clés...'
+          });
+        } else if (index === 1) {
+          const backchannelsEN = ["mm-hmm", "I see", "interesting", "okay"];
+          const backchannelsFR = ["hm-hm", "je vois", "intéressant", "d'accord"];
+          const word = currentProfile?.language === 'English' 
+            ? backchannelsEN[Math.floor(Math.random() * backchannelsEN.length)]
+            : backchannelsFR[Math.floor(Math.random() * backchannelsFR.length)];
+          
+          setPresenceState({
+            behavior: 'backchannel',
+            subtextEN: `Active backchannel: "${word}"...`,
+            subtextFR: `Interjection d'écoute active : "${word}"...`,
+            backchannelWord: word
+          });
+        } else if (index === 2) {
+          setPresenceState({
+            behavior: 'smiling',
+            subtextEN: 'Slightly smiling, feeling impressed by your structural clarity...',
+            subtextFR: 'Sourire bienveillant, réceptif à votre clarté structurale...'
+          });
+        } else {
+          setPresenceState({
+            behavior: 'idle',
+            subtextEN: 'Maintaining steady, calm eye contact...',
+            subtextFR: 'Maintien d\'un contact visuel calme et serein...'
+          });
+        }
+      }, 4000);
+
+    } else if (isPlayingVoice) {
+      // Recruiter is speaking
+      setPresenceState({
+        behavior: 'idle',
+        subtextEN: 'Communicating with natural posture and vocal pacing...',
+        subtextFR: 'Expression orale naturelle avec débit et posture maîtrisés...'
+      });
+
+      let turnCount = 0;
+      interval = setInterval(() => {
+        turnCount++;
+        if (turnCount % 2 === 0) {
+          setPresenceState({
+            behavior: 'smiling',
+            subtextEN: 'Smiling warmly to encourage you...',
+            subtextFR: 'Sourire chaleureux d\'encouragement...'
+          });
+        } else {
+          setPresenceState({
+            behavior: 'nodding',
+            subtextEN: 'Communicating with natural gestures...',
+            subtextFR: 'Hochements naturels de ponctuation d\'idées...'
+          });
+        }
+      }, 5000);
+
+    } else {
+      // Idle / waiting
+      setPresenceState({
+        behavior: 'idle',
+        subtextEN: 'Recruiter sitting comfortably, waiting for your cue...',
+        subtextFR: 'Le recruteur est confortablement installé, en attente de votre signal...'
+      });
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+        clearTimeout(interval);
+      }
+    };
+  }, [isLoading, isListening, isPlayingVoice, currentProfile?.language]);
+
   useEffect(() => {
     if (currentUser?.id) {
       const activeHistory = history || StorageService.getHistory(currentUser.id);
@@ -477,8 +598,18 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
       return;
     }
 
+    const recruiterId = conversationState?.personality?.id || surpriseConfig?.personality?.id || 'corporate';
+    const currentTurn = conversationState?.currentTurn || 0;
+    const isCoachTransition = cleanText.toLowerCase().includes("coaching") || cleanText.toLowerCase().includes("session d'entraînement") || cleanText.toLowerCase().includes("conclut") || cleanText.toLowerCase().includes("conseil");
+    const stage = isCoachTransition ? 'coach_transition' : 
+                  (currentTurn <= 1 ? 'welcome' : 
+                   currentTurn >= 5 ? 'closing' : 
+                   (currentTurn === 3 || currentTurn === 4) ? 'challenging' : 'core');
+    const candidateMood = conversationState?.emotionState?.primaryVibe || 'neutral';
+    const language = currentProfile?.language || 'English';
+
     // 1. Play using OpenAI TTS via HTML5 Audio with fallback to local synthesis
-    const audioUrl = `/api/interview/speak?text=${encodeURIComponent(cleanText)}`;
+    const audioUrl = `/api/interview/speak?text=${encodeURIComponent(cleanText)}&recruiterId=${encodeURIComponent(recruiterId)}&stage=${encodeURIComponent(stage)}&candidateMood=${encodeURIComponent(candidateMood)}&language=${encodeURIComponent(language)}`;
     
     let fallbackTriggered = false;
     const triggerFallback = (reason: string) => {
@@ -833,7 +964,8 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
       score: 100, // standard complete flag
       weakness: currentProfile.language === 'English' ? `Live interview simulation of ${durationMinStr} completed successfully.` : `Simulation d'entretien en direct de ${durationMinStr} terminée avec succès.`,
       recommendation: currentProfile.language === 'English' ? "Completed standard professional interview. Keep training your delivery flow." : "Entretien professionnel standard complété. Continuez à vous entraîner.",
-      language: currentProfile.language === 'English' ? 'EN' as const : 'FR' as const
+      language: currentProfile.language === 'English' ? 'EN' as const : 'FR' as const,
+      conversationState: conversationState
     };
 
     // Save session in History via StorageService
@@ -1724,21 +1856,41 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
                 </div>
               </div>
 
-              {/* Minimal Recruiter Presence Orb (Phase 22.1) */}
+              {/* SHANA Human Presence Engine (HIU Phase 11) - Highly Expressive Recruiter Card */}
               <div className="cyber-card p-6 bg-slate-950/40 border border-slate-850 shadow-xl flex flex-col items-center text-center relative overflow-hidden rounded-3xl w-full">
-                {/* Radial glow background aligned with active state */}
+                {/* Radial glow background aligned with active state & human warmth overlay */}
                 <div className={`absolute -inset-10 opacity-30 blur-2xl transition-all duration-1000 pointer-events-none rounded-full ${
                   isLoading 
                     ? 'bg-amber-500/20' 
                     : isPlayingVoice 
                       ? 'bg-emerald-500/20' 
                       : isListening 
-                        ? 'bg-cyan-500/20' 
+                        ? (presenceState.behavior === 'smiling' ? 'bg-pink-500/25' : 'bg-cyan-500/20')
                         : 'bg-violet-500/10'
                 }`} />
 
+                {/* Presence State Subtle HUD Badge */}
+                <div className="absolute top-3 right-3 flex items-center gap-1 bg-slate-900/80 backdrop-blur-md px-2 py-0.5 rounded-full border border-slate-800/80 text-[8px] font-mono font-black text-violet-400 uppercase tracking-widest">
+                  <span className="w-1 h-1 rounded-full bg-violet-400 animate-ping" />
+                  <span>HIU PRESENCE v11.0</span>
+                </div>
+
                 {/* Recruiter Presence Ring & Orb */}
-                <div className="relative w-28 h-28 flex items-center justify-center mb-4">
+                <div className="relative w-28 h-28 flex items-center justify-center mb-2 mt-2">
+                  {/* Floating Backchannel Speech Bubble */}
+                  <AnimatePresence>
+                    {presenceState.behavior === 'backchannel' && presenceState.backchannelWord && (
+                      <motion.div
+                        initial={{ scale: 0, opacity: 0, y: 10, x: 20 }}
+                        animate={{ scale: 1, opacity: 1, y: -45, x: 35 }}
+                        exit={{ scale: 0, opacity: 0, y: 5, x: 10 }}
+                        className="absolute z-30 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-mono font-extrabold text-[10px] px-2.5 py-1 rounded-2xl rounded-bl-none shadow-[0_4px_12px_rgba(139,92,246,0.3)] border border-violet-400/30 shrink-0"
+                      >
+                        {presenceState.backchannelWord}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
                   {/* Concentric glowing pulse rings */}
                   <motion.div
                     animate={isLoading ? { scale: [1, 1.15, 1], opacity: [0.3, 0.6, 0.3] } : 
@@ -1752,24 +1904,41 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
                         : isPlayingVoice 
                           ? 'border-emerald-500/30 bg-emerald-500/5' 
                           : isListening 
-                            ? 'border-cyan-500/30 bg-cyan-500/5' 
+                            ? (presenceState.behavior === 'smiling' ? 'border-pink-500/40 bg-pink-500/5' : 'border-cyan-500/30 bg-cyan-500/5')
                             : 'border-violet-500/10 bg-violet-500/2'
                     }`}
                   />
                   
+                  {/* Main animated head-tilt and nod presence simulation block */}
                   <motion.div
-                    animate={isLoading ? { scale: [1, 1.08, 1] } : 
-                             isPlayingVoice ? { scale: [1, 1.18, 0.98, 1.08, 1] } :
-                             isListening ? { scale: [1, 1.05, 1] } :
-                             { scale: [1, 1.01, 1] }}
-                    transition={{ repeat: Infinity, duration: isLoading ? 1.5 : isPlayingVoice ? 1 : isListening ? 1.5 : 3, ease: "easeInOut" }}
+                    animate={
+                      presenceState.behavior === 'nodding'
+                        ? { y: [0, -4, 2, -2, 0], scale: [1, 1.03, 0.99, 1.01, 1] }
+                        : presenceState.behavior === 'note-taking'
+                        ? { rotate: [0, 1.5, -1, 1, 0], y: [0, 2, 0, 1, 0] }
+                        : presenceState.behavior === 'looking-up'
+                        ? { y: [0, -3, -3, 0], scale: [1, 1.02, 1] }
+                        : presenceState.behavior === 'smiling'
+                        ? { scale: [1, 1.05, 1.02, 1.04, 1] }
+                        : isLoading ? { scale: [1, 1.08, 1] } 
+                        : isPlayingVoice ? { scale: [1, 1.18, 0.98, 1.08, 1] } 
+                        : isListening ? { scale: [1, 1.05, 1] } 
+                        : { scale: [1, 1.01, 1] }
+                    }
+                    transition={
+                      presenceState.behavior === 'nodding'
+                        ? { duration: 1.5, repeat: Infinity, repeatDelay: 1 }
+                        : presenceState.behavior === 'note-taking'
+                        ? { duration: 2, repeat: Infinity }
+                        : { repeat: Infinity, duration: isLoading ? 1.5 : isPlayingVoice ? 1 : isListening ? 1.5 : 3, ease: "easeInOut" }
+                    }
                     className={`absolute w-20 h-20 rounded-full border transition-all duration-1000 ${
                       isLoading 
                         ? 'border-amber-400/40 shadow-[0_0_20px_rgba(245,158,11,0.2)]' 
                         : isPlayingVoice 
                           ? 'border-emerald-400/40 shadow-[0_0_25px_rgba(16,185,129,0.25)]' 
                           : isListening 
-                            ? 'border-cyan-400/40 shadow-[0_0_20px_rgba(6,182,212,0.2)]' 
+                            ? (presenceState.behavior === 'smiling' ? 'border-pink-400/50 shadow-[0_0_25px_rgba(244,63,94,0.3)]' : 'border-cyan-400/40 shadow-[0_0_20px_rgba(6,182,212,0.2)]')
                             : 'border-violet-500/20 shadow-[0_0_10px_rgba(139,92,246,0.1)]'
                     }`}
                   />
@@ -1781,12 +1950,24 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
                       : isPlayingVoice 
                         ? 'bg-emerald-500/10 border-emerald-400/50 text-emerald-400' 
                         : isListening 
-                          ? 'bg-cyan-500/10 border-cyan-400/50 text-cyan-400' 
+                          ? (presenceState.behavior === 'smiling' ? 'bg-pink-500/15 border-pink-400/60 text-pink-400' : 'bg-cyan-500/10 border-cyan-400/50 text-cyan-400')
                           : 'bg-slate-900/40 border-slate-800 text-slate-500 opacity-60'
                   }`}>
                     {/* Icon based on state */}
                     <AnimatePresence mode="wait">
-                      {isLoading ? (
+                      {presenceState.behavior === 'note-taking' ? (
+                        <motion.div key="writing" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} className="flex flex-col items-center justify-center">
+                          <span className="text-[10px] animate-pulse">✍️</span>
+                        </motion.div>
+                      ) : presenceState.behavior === 'smiling' ? (
+                        <motion.div key="smiling" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} className="text-pink-400">
+                          <Sparkles className="w-5 h-5 animate-spin" style={{ animationDuration: '8s' }} />
+                        </motion.div>
+                      ) : presenceState.behavior === 'looking-up' ? (
+                        <motion.div key="looking-up" initial={{ opacity: 0, y: 3 }} animate={{ opacity: 1, y: -2 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+                          <Brain className="w-5 h-5 text-amber-400 animate-pulse" />
+                        </motion.div>
+                      ) : isLoading ? (
                         <motion.div key="thinking" initial={{ opacity: 0, rotate: -45 }} animate={{ opacity: 1, rotate: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
                           <Cpu className="w-5 h-5 animate-pulse" />
                         </motion.div>
@@ -1796,7 +1977,7 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
                         </motion.div>
                       ) : isListening ? (
                         <motion.div key="listening" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
-                          <Mic className="w-5 h-5" />
+                          <Mic className="w-5 h-5 text-cyan-400" />
                         </motion.div>
                       ) : (
                         <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
@@ -1808,7 +1989,7 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
                 </div>
 
                 {/* Recruiter state labeling */}
-                <div className="space-y-1 text-center">
+                <div className="space-y-1.5 text-center w-full z-10">
                   <h4 className="text-xs font-mono font-black uppercase tracking-widest text-white flex items-center justify-center gap-1.5">
                     {isLoading && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />}
                     {isPlayingVoice && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
@@ -1823,6 +2004,7 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
                           ? (currentProfile.language === 'English' ? "Listening to Your Voice" : "Détection de votre voix")
                           : (currentProfile.language === 'English' ? "Interviewer Waiting" : "En attente")}
                   </h4>
+                  
                   <p className="text-[10px] text-slate-400 max-w-xs mx-auto font-semibold leading-relaxed">
                     {isLoading 
                       ? (currentProfile.language === 'English' ? "Calibrating context-driven questions and active learning memory..." : "Calibrage des questions et traitement de la mémoire en cours...")
@@ -1832,6 +2014,57 @@ export default function InterviewSimulator({ currentUser, currentProfile, bluepr
                           ? (currentProfile.language === 'English' ? "Listening actively. Speak naturally. Your response is recorded." : "Parlez naturellement. Votre réponse est en cours de traitement.")
                           : (currentProfile.language === 'English' ? "Press the mic below or click to start speaking when ready." : "Appuyez sur le micro ci-dessous pour parler.")}
                   </p>
+
+                  {/* Micro-Behavior Feed HUD */}
+                  <div className="mt-3.5 pt-3 border-t border-slate-900/60 w-full flex flex-col items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 text-[9px] font-mono font-extrabold uppercase tracking-widest text-violet-400">
+                      <span>{currentProfile.language === 'English' ? "Active Micro-Behavior:" : "Micro-comportement actif :"}</span>
+                      <span className="px-1.5 py-0.5 rounded bg-violet-950/80 border border-violet-900/40 text-white flex items-center gap-1 font-bold">
+                        {presenceState.behavior === 'idle' && (currentProfile.language === 'English' ? "Idle breathing" : "Respiration calme")}
+                        {presenceState.behavior === 'blinking' && (currentProfile.language === 'English' ? "Blinking / Shift" : "Mise au point")}
+                        {presenceState.behavior === 'nodding' && (currentProfile.language === 'English' ? "Nodding along" : "Hochements")}
+                        {presenceState.behavior === 'note-taking' && (currentProfile.language === 'English' ? "Taking brief notes" : "Prise de notes")}
+                        {presenceState.behavior === 'smiling' && (currentProfile.language === 'English' ? "Slightly smiling" : "Sourire discret")}
+                        {presenceState.behavior === 'looking-up' && (currentProfile.language === 'English' ? "Thoughtful reflection" : "Réflexion")}
+                        {presenceState.behavior === 'pausing' && (currentProfile.language === 'English' ? "Pacing pause" : "Temporisation")}
+                        {presenceState.behavior === 'backchannel' && (currentProfile.language === 'English' ? "Backchannel" : "Interjection")}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-300 font-semibold italic max-w-xs text-center px-2">
+                      "{currentProfile.language === 'English' ? presenceState.subtextEN : presenceState.subtextFR}"
+                    </div>
+
+                    {/* Miniature presence engine control panel / meters */}
+                    <div className="grid grid-cols-3 gap-2 w-full mt-2 bg-slate-950/60 p-2 rounded-xl border border-slate-900/40">
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-[7px] font-mono uppercase text-slate-500 font-extrabold tracking-widest">{currentProfile.language === 'English' ? "Attention" : "Attention"}</span>
+                        <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden relative">
+                          <div 
+                            className="h-full bg-cyan-400 transition-all duration-1000" 
+                            style={{ width: isListening ? '95%' : isPlayingVoice ? '80%' : '60%' }} 
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-[7px] font-mono uppercase text-slate-500 font-extrabold tracking-widest">{currentProfile.language === 'English' ? "Empathy" : "Empathie"}</span>
+                        <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden relative">
+                          <div 
+                            className="h-full bg-pink-500 transition-all duration-1000" 
+                            style={{ width: presenceState.behavior === 'smiling' ? '98%' : isListening ? '85%' : '75%' }} 
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-[7px] font-mono uppercase text-slate-500 font-extrabold tracking-widest">{currentProfile.language === 'English' ? "Note density" : "Notes"}</span>
+                        <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden relative">
+                          <div 
+                            className="h-full bg-violet-400 transition-all duration-1000 animate-pulse" 
+                            style={{ width: presenceState.behavior === 'note-taking' ? '90%' : isListening ? '40%' : '15%' }} 
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 

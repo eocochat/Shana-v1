@@ -6,6 +6,7 @@ const PerformanceRadar = React.lazy(() => import('./PerformanceRadar'));
 const ProgressChart = React.lazy(() => import('./ProgressChart'));
 import LearningValidationAudit from './LearningValidationAudit';
 import CalendarScheduler from './CalendarScheduler';
+import Tips from './Tips';
 import { 
   ArrowRight, 
   Award, 
@@ -257,6 +258,7 @@ export default function DashboardView({
 
   // Dedicated custom dynamic AI Focus recommendation based on real history
   const getCoachFocus = () => {
+    // 1. If there is absolutely no history
     if (history.length === 0) {
       return {
         focus: isFr ? "Calibrer votre CV" : "Establish Professional Baseline",
@@ -268,18 +270,124 @@ export default function DashboardView({
       };
     }
 
-    const latestSession = history[0];
-    if (latestSession.weakness) {
+    // 2. Look for the latest ACTUAL evaluation (TRAIN or ASSESS)
+    const latestEval = history.find(item => item.type === 'TRAIN' || item.type === 'ASSESS');
+
+    if (latestEval) {
+      let focusTitle = "";
+      let detailedAdvice = "";
+      let hasDynamicSource = false;
+
+      // Check if we have specific questionsFeedback with detailed scores and tips
+      if (latestEval.questionsFeedback && latestEval.questionsFeedback.length > 0) {
+        // Sort to find the lowest-scoring phase in this session to highlight as priority
+        const evaluatedQuestions = [...latestEval.questionsFeedback].sort((a, b) => (a.score || 0) - (b.score || 0));
+        const lowestQ = evaluatedQuestions[0];
+        
+        if (lowestQ && lowestQ.score < 90) {
+          hasDynamicSource = true;
+          const phaseName = lowestQ.phaseLabel || "";
+          const scoreVal = lowestQ.score || 0;
+          const qText = lowestQ.questionText || "";
+          const tipText = lowestQ.improvementTip || "";
+          
+          if (isFr) {
+            focusTitle = `Axe prioritaire : ${phaseName.split(':')[0] || "Structure du discours"}`;
+            detailedAdvice = `Lors de votre dernière évaluation, la phase « ${phaseName} » a obtenu un score de ${scoreVal}%. Sur la question : « ${qText} », l'IA a relevé l'opportunité d'amélioration suivante : « ${tipText} ». Concentrez-vous aujourd'hui sur l'articulation méthodique de la méthode STAR.`;
+          } else {
+            focusTitle = `Critical path: ${phaseName.split(':')[0] || "Response Structure"}`;
+            detailedAdvice = `In your latest session, the section "${phaseName}" scored ${scoreVal}%. On the question: "${qText}", Shana identified this key growth area: "${tipText}". Focus today on the rigid application of the STAR framework.`;
+          }
+        }
+      }
+
+      // If no question feedback, check sub-scores for the lowest competency category
+      if (!hasDynamicSource) {
+        const scores = [
+          { name: isFr ? "Alignement du CV" : "Resume Defense", val: latestEval.resumeScore, cat: "resume" },
+          { name: isFr ? "Maîtrise sectorielle" : "Industry Expertise", val: latestEval.industryScore, cat: "industry" },
+          { name: isFr ? "Clarté d'élocution" : "Communication Clarity", val: latestEval.communicationScore, cat: "comm" },
+          { name: isFr ? "Posture de leadership" : "Executive Confidence", val: latestEval.confidenceScore, cat: "confidence" },
+          { name: isFr ? "Résilience au stress" : "Pressure Adaptability", val: latestEval.adaptabilityScore, cat: "adapt" },
+          { name: isFr ? "Structure comportementale" : "Behavioral Structure", val: latestEval.behavioralScore, cat: "behavioral" },
+        ].filter(s => s.val !== undefined && s.val > 0);
+
+        if (scores.length > 0) {
+          scores.sort((a, b) => a.val! - b.val!);
+          const lowestScore = scores[0];
+
+          if (lowestScore && lowestScore.val! < 90) {
+            hasDynamicSource = true;
+            if (isFr) {
+              focusTitle = `Renforcer : ${lowestScore.name}`;
+              detailedAdvice = `Votre dernière simulation a révélé un point de blocage sur la compétence « ${lowestScore.name} » (${lowestScore.val}%). Conseil de Shana : Intégrez systématiquement des indicateurs d'impact financier et des justifications d'arbitrage claires aujourd'hui.`;
+            } else {
+              focusTitle = `Leverage area: ${lowestScore.name}`;
+              detailedAdvice = `Your last mock run showed room for growth in "${lowestScore.name}" (${lowestScore.val}%). Coach tip: Solidify this metric today by focusing on explicit architectural justifications and quantifiable business outcomes.`;
+            }
+          }
+        }
+      }
+
+      // If we have weakness text in the history item, make sure it's NOT a generic "completed successfully" string
+      if (!hasDynamicSource && latestEval.weakness) {
+        const weaknessText = latestEval.weakness.trim();
+        const lowerW = weaknessText.toLowerCase();
+        
+        const isGenericSuccessMsg = lowerW.includes("terminée avec succès") || 
+                                    lowerW.includes("completed successfully") ||
+                                    lowerW.includes("simulation d'entretien") ||
+                                    lowerW.includes("completed standard");
+
+        if (!isGenericSuccessMsg && weaknessText.length > 10) {
+          hasDynamicSource = true;
+          if (isFr) {
+            focusTitle = "Ajuster l'impact";
+            detailedAdvice = `Votre dernière évaluation a relevé l'axe d'amélioration suivant : « ${weaknessText} ». Concentrez-vous sur la formulation rigoureuse de vos actions (méthode STAR) et de votre impact business aujourd'hui.`;
+          } else {
+            focusTitle = "Refine Presentation Quality";
+            detailedAdvice = `Your latest assessment highlighted this critical area: "${weaknessText}". Practice structuring your answers to directly mitigate this pattern today.`;
+          }
+        }
+      }
+
+      // Fallback: if we still don't have a dynamic source (or latest weakness was a generic success message), 
+      // custom-craft a hyper-personalized, realistic, industry-specific advice based on targetRole and industry!
+      if (!hasDynamicSource) {
+        const role = user.targetRole || (isFr ? "Leader" : "Executive Leader");
+        const ind = user.industry || "Technology";
+        
+        if (isFr) {
+          focusTitle = `GOUVERNANCE : ${role.toUpperCase()}`;
+          detailedAdvice = `Pour cibler un poste de ${role} dans le secteur de la/du ${ind}, votre élocution doit projeter une autorité tranquille. Préparez des récits d'entretiens articulant comment vous pilotez la performance opérationnelle et mesurez l'impact en appliquant strictement la structure STAR.`;
+        } else {
+          focusTitle = `EXECUTIVE IMPACT: ${role.toUpperCase()}`;
+          detailedAdvice = `Targeting a ${role} position within the ${ind} industry requires pristine delivery. Practice structuring your operational and strategic milestones under the STAR framework, focusing on hard KPIs and cost/time resource savings.`;
+        }
+      }
+
       return {
-        focus: isFr ? "Améliorer la clarté" : "Target Improvement Focus",
-        desc: isFr
-          ? `Votre dernière évaluation a relevé : « ${latestSession.weakness} ». Concentrez-vous aujourd'hui sur la méthode STAR.`
-          : `Your last feedback highlighted: "${latestSession.weakness}". Focus on concrete, metrics-driven examples today.`,
+        focus: focusTitle,
+        desc: detailedAdvice,
         action: isFr ? "S'entraîner à nouveau" : "Practice now",
         handler: nextActionHandler
       };
     }
 
+    // 3. If they have parsed their CV but not yet performed any actual practice session
+    const hasCvParsed = history.some(item => item.type === 'CV_PARSE');
+    if (hasCvParsed) {
+      return {
+        focus: isFr ? "Lancer votre premier test" : "Launch Your First Vocal Test",
+        desc: isFr
+          ? "Votre CV a été analysé et cartographié avec succès ! Pour calibrer votre score d'assurance et obtenir vos premiers axes d'amélioration, lancez votre première simulation d'entretien maintenant."
+          : "Your CV has been successfully mapped! To calibrate your initial readiness score and detect specific speech patterns, launch your first mock interview practice now.",
+        action: isFr ? "S'entraîner maintenant" : "Start training",
+        handler: nextActionHandler
+      };
+    }
+
+    // 4. Default fallback
     return {
       focus: isFr ? "S'exercer aux imprévus" : "Pacing & Transitions Focus",
       desc: isFr
@@ -623,6 +731,9 @@ export default function DashboardView({
             </div>
           </motion.div>
 
+          {/* Contextual Interview Tips Component */}
+          <Tips targetRole={user.targetRole || ''} lang={lang === 'FR' ? 'FR' : 'EN'} />
+
         </div>
 
         {/* COLUMN 2: RECENT ACTIVITY TIMELINE (Col span 7) */}
@@ -691,7 +802,12 @@ export default function DashboardView({
                             </span>
                             <span className="w-1 h-1 rounded-full bg-stone-950" />
                             <span className="text-[9px] font-mono font-black uppercase bg-white border border-stone-950 px-2 py-0.5 rounded text-stone-950 shadow-[1px_1px_0px_0px_rgba(17,17,17,1)]">
-                              {isAssess ? (isFr ? "VIDÉO MIROIR" : "MIRROR VIDEO") : (isFr ? "VOIX INTERACTIVE" : "VOICE ONLY")}
+                              {item.type === 'CV_PARSE' 
+                                ? (isFr ? "ANALYSE DE CV" : "CV ANALYSIS")
+                                : isAssess 
+                                  ? (isFr ? "VIDÉO MIROIR" : "MIRROR VIDEO") 
+                                  : (isFr ? "VOIX INTERACTIVE" : "VOICE ONLY")
+                              }
                             </span>
                           </div>
                           
@@ -713,7 +829,12 @@ export default function DashboardView({
                         <p className="text-xs text-stone-700 leading-relaxed font-semibold">
                           {item.weakness ? (
                             <span>
-                              <strong className="text-stone-950 font-black">{isFr ? "Faiblesse relevée : " : "Improvement area: "}</strong>
+                              <strong className="text-stone-950 font-black">
+                                {item.type === 'CV_PARSE'
+                                  ? (isFr ? "Statut de l'analyse : " : "Analysis status: ")
+                                  : (isFr ? "Faiblesse relevée : " : "Improvement area: ")
+                                }
+                              </strong>
                               {item.weakness}
                             </span>
                           ) : (

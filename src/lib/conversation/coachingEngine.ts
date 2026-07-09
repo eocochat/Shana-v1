@@ -8,7 +8,8 @@ export class CoachingEngine {
       hesitationsDetectedCount: 0,
       fillerWordsUsedCount: {},
       confidenceTrend: [],
-      starCompletenessTrend: []
+      starCompletenessTrend: [],
+      conversationalInsights: []
     };
   }
 
@@ -27,7 +28,8 @@ export class CoachingEngine {
       hesitationsDetectedCount: previousData.hesitationsDetectedCount,
       fillerWordsUsedCount: { ...previousData.fillerWordsUsedCount },
       confidenceTrend: [...previousData.confidenceTrend],
-      starCompletenessTrend: [...previousData.starCompletenessTrend]
+      starCompletenessTrend: [...previousData.starCompletenessTrend],
+      conversationalInsights: [...(previousData.conversationalInsights || [])]
     };
 
     const words = text.trim().split(/\s+/).filter(w => w.length > 0);
@@ -55,9 +57,9 @@ export class CoachingEngine {
       const regex = new RegExp(`\\b${f}\\b`, 'gi');
       const matches = text.match(regex);
       if (matches) {
-        const count = matches.length;
-        data.fillerWordsUsedCount[f] = (data.fillerWordsUsedCount[f] || 0) + count;
-        turnHesitations += count;
+         const count = matches.length;
+         data.fillerWordsUsedCount[f] = (data.fillerWordsUsedCount[f] || 0) + count;
+         turnHesitations += count;
       }
     });
 
@@ -69,6 +71,38 @@ export class CoachingEngine {
     // 5. Evaluate STAR completeness
     const starScore = this.calculateStarCompleteness(text);
     data.starCompletenessTrend.push(starScore);
+
+    // 6. Generate Context-Aware Conversational Insights (HIU Phase 2)
+    const lower = text.toLowerCase();
+    
+    // Insight A: Technical clarity
+    const hasTechnicalKeywords = ['database', 'server', 'react', 'api', 'backend', 'frontend', 'kubernetes', 'docker', 'code', 'refactor', 'infrastructure', 'cloud', 'architecture', 'algorithm', 'système', 'données'].some(w => lower.includes(w));
+    if (hasTechnicalKeywords && confidenceScore > 70 && !data.conversationalInsights.includes("You explained technical concepts clearly.")) {
+      data.conversationalInsights.push("You explained technical concepts clearly.");
+    }
+
+    // Insight B: Over-explaining
+    if (wordCount > 165 && !data.conversationalInsights.includes("You tended to over-explain simple questions.")) {
+      data.conversationalInsights.push("You tended to over-explain simple questions.");
+    }
+
+    // Insight C: Strong leadership discussion
+    const hasLeadershipKeywords = ['team', 'lead', 'manage', 'delegate', 'align', 'hire', 'fire', 'stakeholder', 'client', 'équipe', 'dirigé', 'géré', 'partie prenante', 'collaborat'].some(w => lower.includes(w));
+    if (hasLeadershipKeywords && confidenceScore > 78 && starScore >= 75 && !data.conversationalInsights.includes("Your strongest conversations occurred when discussing leadership.")) {
+      data.conversationalInsights.push("Your strongest conversations occurred when discussing leadership.");
+    }
+
+    // Insight D: Relaxation midway trend
+    if (data.confidenceTrend.length >= 4 && !data.conversationalInsights.includes("You became noticeably more relaxed midway through the interview.")) {
+      const mid = Math.floor(data.confidenceTrend.length / 2);
+      const firstHalf = data.confidenceTrend.slice(0, mid);
+      const secondHalf = data.confidenceTrend.slice(mid);
+      const avgFirst = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
+      const avgSecond = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+      if (avgSecond - avgFirst >= 15) {
+        data.conversationalInsights.push("You became noticeably more relaxed midway through the interview.");
+      }
+    }
 
     return data;
   }

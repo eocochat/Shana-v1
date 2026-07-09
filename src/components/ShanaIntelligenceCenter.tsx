@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Brain, Award, ShieldCheck, UserCheck, AlertCircle, FileText, CheckCircle, TrendingUp, HelpCircle } from 'lucide-react';
+import { Sparkles, Brain, Award, ShieldCheck, UserCheck, AlertCircle, FileText, CheckCircle, TrendingUp, HelpCircle, Heart } from 'lucide-react';
 
 interface ShanaIntelligenceCenterProps {
   conversationState: any;
@@ -7,7 +7,7 @@ interface ShanaIntelligenceCenterProps {
 }
 
 export default function ShanaIntelligenceCenter({ conversationState, language }: ShanaIntelligenceCenterProps) {
-  const [activeTab, setActiveTab] = useState<'brain' | 'twin' | 'evidence'>('brain');
+  const [activeTab, setActiveTab] = useState<'brain' | 'twin' | 'evidence' | 'eq'>('brain');
   const isEng = language === 'English';
 
   if (!conversationState) {
@@ -66,7 +66,7 @@ export default function ShanaIntelligenceCenter({ conversationState, language }:
       </div>
 
       {/* Tabs Selector */}
-      <div className="grid grid-cols-3 gap-1 bg-slate-900/60 p-1 rounded-xl border border-slate-850">
+      <div className="grid grid-cols-4 gap-1 bg-slate-900/60 p-1 rounded-xl border border-slate-850">
         <button
           onClick={() => setActiveTab('brain')}
           className={`py-1.5 px-2 rounded-lg text-[9px] font-mono font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer ${
@@ -93,6 +93,15 @@ export default function ShanaIntelligenceCenter({ conversationState, language }:
         >
           <Award className="w-3 h-3" />
           <span>{isEng ? "Evidence" : "Preuves"}</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('eq')}
+          className={`py-1.5 px-2 rounded-lg text-[9px] font-mono font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer ${
+            activeTab === 'eq' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-850/40'
+          }`}
+        >
+          <Heart className="w-3 h-3 text-rose-400" />
+          <span>{isEng ? "EQ" : "QE"}</span>
         </button>
       </div>
 
@@ -282,6 +291,75 @@ export default function ShanaIntelligenceCenter({ conversationState, language }:
               </p>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Tab 4: Emotional Intelligence (EQ Layer) */}
+      {activeTab === 'eq' && (
+        <div className="space-y-3.5 animate-fade-in text-xs text-left">
+          <div className="flex items-center justify-between">
+            <span className="text-[8px] font-mono uppercase text-slate-500 font-extrabold block">
+              {isEng ? "LAYER 1.5 — SHANA REAL-TIME QE ENGINE" : "COUCHE 1.5 — MOTEUR QE EN TEMPS RÉEL SHANA"}
+            </span>
+            <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-rose-950/60 border border-rose-800 text-rose-300 font-extrabold uppercase tracking-wider">
+              {conversationState.emotionState?.primaryVibe || 'neutral'}
+            </span>
+          </div>
+
+          {conversationState.emotionState ? (
+            <div className="space-y-3.5">
+              {/* Dynamic Vibe Description */}
+              <div className="bg-slate-900/60 border border-slate-850 p-2.5 rounded-xl space-y-1">
+                <span className="text-[8px] font-mono uppercase text-slate-500 block font-bold">
+                  {isEng ? "DYNAMIC COGNITIVE RESONANCE" : "RÉSONANCE COGNITIVE DYNAMIQUE"}
+                </span>
+                <p className="text-[10px] text-slate-300 leading-relaxed font-normal">
+                  {isEng 
+                    ? `Estimated primary conversational state is "${conversationState.emotionState.primaryVibe || 'neutral'}". Shana has dynamically aligned her recruiter tone, prosody pacing, and query complexity constraints.`
+                    : `L'état conversationnel estimé est "${conversationState.emotionState.primaryVibe || 'neutral'}". Shana a aligné dynamiquement son ton, son rythme prosodique et la complexité de ses relances.`
+                  }
+                </p>
+              </div>
+
+              {/* Psychological Vectors */}
+              <div className="space-y-2.5 bg-slate-900/30 p-3 rounded-xl border border-slate-850">
+                <span className="text-[8px] font-mono uppercase text-slate-500 block font-bold mb-1">
+                  {isEng ? "PSYCHOLOGICAL VECTORS" : "VECTEURS PSYCHOLOGIQUES"}
+                </span>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1 text-left">
+                    <span className="text-[9px] text-slate-400 font-medium">{isEng ? "Composure" : "Calme / Aplomb"}</span>
+                    {renderBlockBar(conversationState.emotionState.composure ?? 50)}
+                  </div>
+                  <div className="space-y-1 text-left">
+                    <span className="text-[9px] text-slate-400 font-medium">{isEng ? "Cognitive Load" : "Charge Cognitive"}</span>
+                    {renderBlockBar(conversationState.emotionState.cognitiveLoad ?? 30)}
+                  </div>
+                  <div className="space-y-1 text-left">
+                    <span className="text-[9px] text-slate-400 font-medium">{isEng ? "Imposter Syndrome" : "Syndrome d'Imposteur"}</span>
+                    {renderBlockBar(conversationState.emotionState.imposterIndex ?? 20)}
+                  </div>
+                  <div className="space-y-1 text-left">
+                    <span className="text-[9px] text-slate-400 font-medium">{isEng ? "Defensiveness" : "Défensive"}</span>
+                    {renderBlockBar(conversationState.emotionState.defensiveness ?? 10)}
+                  </div>
+                  <div className="space-y-1 text-left">
+                    <span className="text-[9px] text-slate-400 font-medium">{isEng ? "Flow State Rating" : "Niveau de Flow"}</span>
+                    {renderBlockBar(conversationState.emotionState.flowStateRating ?? 50)}
+                  </div>
+                  <div className="space-y-1 text-left">
+                    <span className="text-[9px] text-slate-400 font-medium">{isEng ? "Stress Level" : "Niveau de Stress"}</span>
+                    {renderBlockBar(conversationState.emotionState.stress ?? 40)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-4 text-slate-500">
+              {isEng ? "EQ engine is calibrating..." : "Calibrage du QE..."}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -8,6 +8,10 @@ export interface AIOpsIncident {
   status: 'open' | 'investigating' | 'resolved';
   timestamp: string;
   severity: 'warning' | 'critical';
+  affectedEngine?: string;
+  rootCause?: string;
+  automaticActions?: string;
+  recoveryDurationSec?: number;
 }
 
 export interface AIOpsConfig {
@@ -89,7 +93,11 @@ export const AIOperationsController = {
         description: 'Vocal synthesizers in Europe region experiencing latency peaks above 950ms during high concurrency.',
         status: 'investigating',
         timestamp: new Date(Date.now() - 4 * 3600 * 1000).toISOString(),
-        severity: 'warning'
+        severity: 'warning',
+        affectedEngine: 'Voice Service (WebRTC/Twilio)',
+        rootCause: 'Downstream voice synthesizer regional capacity saturated under peak parallel user requests.',
+        automaticActions: 'Triggered adaptive voice jitter buffer increase and scheduled container thread pooling flush.',
+        recoveryDurationSec: 45
       },
       {
         id: 'inc_2',
@@ -97,7 +105,11 @@ export const AIOperationsController = {
         description: 'Gemini structured JSON responses for FR language failed validation parser sporadically on phase 3.',
         status: 'resolved',
         timestamp: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-        severity: 'critical'
+        severity: 'critical',
+        affectedEngine: 'Evaluation Core Engine (Gemini API)',
+        rootCause: 'Model output strayed from strict schema validation constraints during highly complex French CV analyses.',
+        automaticActions: 'Initiated structured fallback prompt parsing block and switched to schema validation retry model.',
+        recoveryDurationSec: 12
       },
       {
         id: 'inc_3',
@@ -105,7 +117,11 @@ export const AIOperationsController = {
         description: 'Twilio media stream channel disconnection detected in multiple sessions.',
         status: 'open',
         timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-        severity: 'critical'
+        severity: 'critical',
+        affectedEngine: 'Voice Service (WebRTC/Twilio)',
+        rootCause: 'Inbound Twilio WebSocket trunk dropped connections due to external transit gateway routing failures.',
+        automaticActions: 'Rerouted connection handshakes to backup secondary WebRTC regional trunk.',
+        recoveryDurationSec: 8
       }
     ];
     this.saveIncidents(seeded);
@@ -116,15 +132,29 @@ export const AIOperationsController = {
     localStorage.setItem(INCIDENTS_KEY, JSON.stringify(incidents));
   },
 
-  createIncident(type: AIOpsIncident['type'], description: string, severity: AIOpsIncident['severity'], userEmail: string): AIOpsIncident {
+  createIncident(
+    type: AIOpsIncident['type'],
+    description: string,
+    severity: AIOpsIncident['severity'],
+    userEmail: string,
+    affectedEngine?: string,
+    rootCause?: string,
+    automaticActions?: string,
+    recoveryDurationSec?: number,
+    initialStatus: AIOpsIncident['status'] = 'open'
+  ): AIOpsIncident {
     const incidents = this.getIncidents();
     const newIncident: AIOpsIncident = {
       id: 'inc_' + Math.random().toString(36).substring(2, 9),
       type,
       description,
-      status: 'open',
+      status: initialStatus,
       timestamp: new Date().toISOString(),
-      severity
+      severity,
+      affectedEngine,
+      rootCause,
+      automaticActions,
+      recoveryDurationSec
     };
     incidents.unshift(newIncident);
     this.saveIncidents(incidents);

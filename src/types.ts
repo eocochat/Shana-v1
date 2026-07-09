@@ -83,6 +83,7 @@ export interface SessionHistoryItem {
   strengths?: string[];
   questionsFeedback?: QuestionFeedbackItem[];
   createdAt?: string;
+  conversationState?: any;
 }
 
 export interface UserProfile {

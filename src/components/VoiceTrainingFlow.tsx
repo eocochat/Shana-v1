@@ -29,6 +29,7 @@ import { InterviewVoiceManager } from '../lib/InterviewVoiceManager';
 import CheckoutModal from './CheckoutModal';
 import { SerendipityService } from '../lib/serendipity';
 import { TurnDetector } from '../lib/conversation/conversationDirector';
+import Tips from './Tips';
 
 interface VoiceTrainingFlowProps {
   currentUser: UserType;
@@ -37,6 +38,7 @@ interface VoiceTrainingFlowProps {
   onBack: () => void;
   onSessionSaved: () => void;
   surpriseConfig?: any;
+  drillId?: string;
 }
 
 interface Message {
@@ -50,7 +52,8 @@ export default function VoiceTrainingFlow({
   blueprint, 
   onBack,
   onSessionSaved,
-  surpriseConfig
+  surpriseConfig,
+  drillId
 }: VoiceTrainingFlowProps) {
   
   // High-level steps: 'start' | 'active' | 'review'
@@ -59,6 +62,21 @@ export default function VoiceTrainingFlow({
   // Candidate Monetization & Checkout States
   const [monetization, setMonetization] = useState(() => StorageService.getCandidateMonetization(currentUser.id));
   const [selectedProductForCheckout, setSelectedProductForCheckout] = useState<string | null>(null);
+
+  // Tips visibility state synced dynamically
+  const [tipsEnabled, setTipsEnabled] = useState(() => {
+    return localStorage.getItem('shana_tips_enabled_for_training') === 'true';
+  });
+
+  useEffect(() => {
+    const handleTipsConfigUpdate = () => {
+      setTipsEnabled(localStorage.getItem('shana_tips_enabled_for_training') === 'true');
+    };
+    window.addEventListener('shana_tips_config_updated', handleTipsConfigUpdate);
+    return () => {
+      window.removeEventListener('shana_tips_config_updated', handleTipsConfigUpdate);
+    };
+  }, []);
 
   useEffect(() => {
     const handleProgressUpdate = () => {
@@ -745,7 +763,9 @@ export default function VoiceTrainingFlow({
           userInput: '',
           profile: currentProfile,
           blueprint: blueprint,
-          surpriseConfig: surpriseConfig
+          surpriseConfig: surpriseConfig,
+          drillId: drillId,
+          history: StorageService.getHistory(currentUser.id) || []
         })
       });
 
@@ -892,7 +912,9 @@ export default function VoiceTrainingFlow({
           userInput: '',
           profile: currentProfile,
           blueprint: blueprint,
-          surpriseConfig: surpriseConfig
+          surpriseConfig: surpriseConfig,
+          drillId: drillId,
+          history: StorageService.getHistory(currentUser.id) || []
         })
       });
 
@@ -1047,6 +1069,21 @@ export default function VoiceTrainingFlow({
 
     try {
       StorageService.saveVoiceSession(currentUser.id, sessionPayload);
+      
+      // Save specific drill completion state securely if it was an active drill session
+      if (drillId) {
+        try {
+          const key = `shana_completed_drills_${currentUser.id}`;
+          const currentDrills = JSON.parse(localStorage.getItem(key) || '[]');
+          if (!currentDrills.includes(drillId)) {
+            currentDrills.push(drillId);
+            localStorage.setItem(key, JSON.stringify(currentDrills));
+          }
+        } catch (e) {
+          console.error("Failed to save completed drill state", e);
+        }
+      }
+
       const updatedMonetization = StorageService.consumeCandidateCredit(currentUser.id, 'AUDIO');
       setMonetization(updatedMonetization);
       
@@ -1467,6 +1504,8 @@ export default function VoiceTrainingFlow({
                         liveHint === "Try answering directly to improve your conciseness score." ? "Répondez plus directement pour améliorer votre score de concision." :
                         liveHint === "Try using a single structural example to get started." ? "Utilisez un seul exemple structuré pour commencer." :
                         liveHint === "Try taking a slight breath to reduce verbal fillers." ? "Respirez calmement pour réduire les tics de langage." :
+                        liveHint === "Pacing is a bit rushed. Try to slow down your speaking rate." ? "Débit un peu rapide. Essayez de ralentir votre élocution." :
+                        liveHint === "Pacing is a bit slow. Try to speak with more energetic flow." ? "Débit un peu lent. Essayez d'adopter un rythme plus dynamique." :
                         liveHint
                       ) : liveHint}
                     </p>
@@ -1697,6 +1736,17 @@ export default function VoiceTrainingFlow({
               )}
               <span>{isFrench ? "Valider la Réponse" : "Submit Answer"}</span>
             </button>
+
+            {/* Contextual Interview Tips Overlay if enabled by user */}
+            {tipsEnabled && (
+              <div className="mt-8 border-2 border-dashed border-stone-300 p-5 rounded-2xl bg-stone-50/50">
+                <Tips 
+                  targetRole={currentProfile.targetRole || ''} 
+                  lang={isFrench ? 'FR' : 'EN'} 
+                  inlineDisplayOnly={true} 
+                />
+              </div>
+            )}
 
           </div>
 
