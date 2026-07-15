@@ -12,6 +12,13 @@ export const getCookie = (name: string): string | null => {
     while (c.charAt(0) === ' ') c = c.substring(1, c.length);
     if (c.indexOf(nameEQ) === 0) return decodeURIComponent(c.substring(nameEQ.length, c.length));
   }
+  // Robust fallback for iframes where cookies are disabled or blocked
+  try {
+    const fallback = localStorage.getItem(`cookie_${name}`);
+    if (fallback !== null) return fallback;
+  } catch (e) {
+    console.warn("[SHANA Cookies] Failed to read from localStorage fallback:", e);
+  }
   return null;
 };
 
@@ -46,15 +53,35 @@ export const setCookie = (
   cookieString += `; samesite=${options.sameSite || 'Lax'}`;
 
   document.cookie = cookieString;
+
+  // Sync to localStorage for robust fallback inside sandboxed iframe previews
+  try {
+    localStorage.setItem(`cookie_${name}`, value);
+  } catch (e) {
+    console.warn("[SHANA Cookies] Failed to write to localStorage fallback:", e);
+  }
 };
 
 export const deleteCookie = (name: string): void => {
   document.cookie = `${encodeURIComponent(name)}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+  try {
+    localStorage.removeItem(`cookie_${name}`);
+  } catch (e) {
+    console.warn("[SHANA Cookies] Failed to delete from localStorage fallback:", e);
+  }
 };
 
 export const getConsent = (): CookieConsent | null => {
   const cookieVal = getCookie('shana_cookie_consent');
-  if (!cookieVal) return null;
+  if (!cookieVal) {
+    try {
+      const fallbackVal = localStorage.getItem('cookie_shana_cookie_consent');
+      if (fallbackVal) {
+        return JSON.parse(fallbackVal);
+      }
+    } catch {}
+    return null;
+  }
   try {
     return JSON.parse(cookieVal);
   } catch {
@@ -68,7 +95,8 @@ export const setConsent = (consent: Omit<CookieConsent, 'updatedAt'>): void => {
     updatedAt: new Date().toISOString()
   };
   
-  let cookieString = `shana_cookie_consent=${encodeURIComponent(JSON.stringify(payload))}`;
+  const serialized = JSON.stringify(payload);
+  let cookieString = `shana_cookie_consent=${encodeURIComponent(serialized)}`;
   const d = new Date();
   d.setTime(d.getTime() + (365 * 24 * 60 * 60 * 1000)); // 1 year
   cookieString += `; expires=${d.toUTCString()}; path=/; samesite=Lax`;
@@ -76,6 +104,13 @@ export const setConsent = (consent: Omit<CookieConsent, 'updatedAt'>): void => {
     cookieString += '; secure';
   }
   document.cookie = cookieString;
+
+  // Sync to localStorage
+  try {
+    localStorage.setItem('cookie_shana_cookie_consent', serialized);
+  } catch (e) {
+    console.warn("[SHANA Cookies] Failed to write consent to localStorage fallback:", e);
+  }
 
   // If preferences consent was revoked or not selected, clean preferences cookies
   if (!consent.preferences) {
