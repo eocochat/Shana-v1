@@ -23,7 +23,7 @@ import {
   Download,
   RotateCcw
 } from 'lucide-react';
-import { CVAnalysis, InterviewBlueprint, User } from '../types';
+import { CVAnalysis, InterviewBlueprint, User, Profile } from '../types';
 import { StorageService } from '../lib/storage';
 
 interface CVPrepareFlowProps {
@@ -432,6 +432,19 @@ export default function CVPrepareFlow({ currentUser, onBackToHome, onComplete }:
       StorageService.saveAnalysis(mapped.cvAnalysis);
       StorageService.saveBlueprint(mapped.interviewBlueprint);
 
+      // S'assurer que le profil de l'utilisateur correspond au CV analysé
+      const existingProfile = StorageService.getProfile(currentUser.id);
+      const updatedProfile: Profile = {
+        userId: currentUser.id,
+        targetRole: mapped.cvAnalysis.role || 'Manager de Restaurant',
+        industry: mapped.cvAnalysis.industry || 'Restauration & Hôtellerie',
+        experienceYears: mapped.cvAnalysis.experienceYears || '3',
+        language: existingProfile?.language || 'French',
+        onboardingCompleted: true,
+        avatarUrl: existingProfile?.avatarUrl
+      };
+      StorageService.saveProfile(updatedProfile);
+
       setAnalysis(mapped.cvAnalysis);
       setBlueprint(mapped.interviewBlueprint);
 
@@ -466,6 +479,20 @@ export default function CVPrepareFlow({ currentUser, onBackToHome, onComplete }:
         
         StorageService.saveAnalysis(mapped.cvAnalysis);
         StorageService.saveBlueprint(mapped.interviewBlueprint);
+
+        // Mettre à jour le profil de l'utilisateur lors d'un rollback
+        const existingProfile = StorageService.getProfile(currentUser.id);
+        const updatedProfile: Profile = {
+          userId: currentUser.id,
+          targetRole: mapped.cvAnalysis.role || 'Manager de Restaurant',
+          industry: mapped.cvAnalysis.industry || 'Restauration & Hôtellerie',
+          experienceYears: mapped.cvAnalysis.experienceYears || '3',
+          language: existingProfile?.language || 'French',
+          onboardingCompleted: true,
+          avatarUrl: existingProfile?.avatarUrl
+        };
+        StorageService.saveProfile(updatedProfile);
+
         setAnalysis(mapped.cvAnalysis);
         setBlueprint(mapped.interviewBlueprint);
         setStep('blueprint');

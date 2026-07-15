@@ -11,47 +11,20 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase.js";
 import { ConfigResolver } from "../../services/secrets/ConfigResolver.js";
+import { AIOrchestrator } from "./AIOrchestrator.js";
 
 const Type = { OBJECT: "OBJECT", STRING: "STRING", ARRAY: "ARRAY", INTEGER: "INTEGER" };
 
 async function callOpenAi(prompt: string, systemInstruction?: string, isJson?: boolean): Promise<string> {
-  const openAIKey = ConfigResolver.getOpenAIKey();
-  if (!openAIKey) {
-    throw new Error("OpenAI API Key is missing. Please configure it in your environment settings.");
-  }
-
-  const messages: any[] = [];
-  if (systemInstruction) {
-    messages.push({ role: "system", content: systemInstruction });
-  }
-  messages.push({ role: "user", content: prompt });
-
-  const body: any = {
-    model: "gpt-4o-mini",
-    messages,
-    temperature: 0.3
-  };
-
-  if (isJson) {
-    body.response_format = { type: "json_object" };
-  }
-
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${openAIKey}`
-    },
-    body: JSON.stringify(body)
+  const result = await AIOrchestrator.generateCompletion({
+    category: isJson ? 'premium_evaluation' : 'basic_question',
+    contents: prompt,
+    config: {
+      systemInstruction,
+      responseMimeType: isJson ? "application/json" : undefined
+    }
   });
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`OpenAI HTTP Error ${res.status}: ${errorText}`);
-  }
-
-  const json = await res.json();
-  return json.choices[0].message.content || "";
+  return result.text;
 }
 
 // ==========================================

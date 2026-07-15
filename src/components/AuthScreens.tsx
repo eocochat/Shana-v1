@@ -608,6 +608,20 @@ export default function AuthScreens({ initialView = 'login', prefilledUser, onLo
         currentUser={currentUser}
         onBackToHome={() => setIsPreparingCV(false)}
         onComplete={(analysis, blueprint) => {
+          // Synchroniser le profil avec les données du CV analysé (rôle, secteur, expérience)
+          const existingProfile = StorageService.getProfile(currentUser.id);
+          const updatedProfile: ProfileType = {
+            userId: currentUser.id,
+            targetRole: analysis.role || 'Manager de Restaurant',
+            industry: analysis.industry || 'Restauration & Hôtellerie',
+            experienceYears: analysis.experienceYears || '3',
+            language: existingProfile?.language || 'French',
+            onboardingCompleted: true,
+            avatarUrl: existingProfile?.avatarUrl
+          };
+          StorageService.saveProfile(updatedProfile);
+          setCurrentProfile(updatedProfile);
+          
           setIsPreparingCV(false);
           setRefreshToggle(prev => !prev);
         }}

@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase.js";
 import { ConfigResolver } from "../../services/secrets/ConfigResolver.js";
+import { AIOrchestrator } from "./AIOrchestrator.js";
 const Type = { OBJECT: "OBJECT", STRING: "STRING", ARRAY: "ARRAY", INTEGER: "INTEGER" };
 import crypto from "crypto";
 import { AuditLogger } from "../security/SecurityManager.js";
@@ -439,36 +440,17 @@ Return the response exactly as a well-formed JSON object matching this schema:
   "achievements": ["achievement1", "achievement2"]
 }`;
 
-    const openAIKey = ConfigResolver.getOpenAIKey();
-    if (!openAIKey) {
-      throw new Error("OpenAI API Key is missing. Please configure it in your environment settings.");
-    }
-
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openAIKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: `Resume Raw Content:\n"""\n${text}\n"""` }
-          ],
+      const result = await AIOrchestrator.generateCompletion({
+        category: 'behavioral_reasoning', // High precision parsing
+        contents: `Resume Raw Content:\n"""\n${text}\n"""`,
+        config: {
+          systemInstruction: systemPrompt,
           temperature: 0.1,
-        }),
+          responseMimeType: "application/json"
+        }
       });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`OpenAI HTTP Error ${response.status}: ${errorText}`);
-      }
-
-      const json = await response.json();
-      const outputText = json.choices[0].message.content || "{}";
+      const outputText = result.text || "{}";
       return JSON.parse(outputText) as NormalizedCvData;
     } catch (e) {
       console.error("[StoragePipeline] OpenAI structured parsing failure, generating clean fallback:", e);

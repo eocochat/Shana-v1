@@ -133,7 +133,11 @@ export class ProviderMonitor {
     // Cost calculation based on specific models
     let blendedRate = 0.000002; // default
     const mLower = model.toLowerCase();
-    if (mLower.includes('gpt-4o-mini') || mLower.includes('gemini-3.5-flash') || mLower.includes('gemini-3.1-flash-lite')) {
+    if (mLower.includes('gpt-5.5-mini')) {
+      blendedRate = 0.0000003; // $0.30 per 1M tokens for GPT-5.5 mini
+    } else if (mLower.includes('gpt-5.5')) {
+      blendedRate = 0.000005; // $5.00 per 1M tokens for GPT-5.5 standard
+    } else if (mLower.includes('gpt-4o-mini') || mLower.includes('gemini-3.5-flash') || mLower.includes('gemini-3.1-flash-lite')) {
       blendedRate = 0.0000002; // $0.20 per 1M tokens
     } else if (mLower.includes('gpt-4o') || mLower.includes('gemini-1.5-pro')) {
       blendedRate = 0.000005; // $5.00 per 1M tokens

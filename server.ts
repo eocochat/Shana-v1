@@ -31,6 +31,7 @@ import { AIQualityValidator } from "./src/services/aiQualityValidator";
 import { AIOptimizationEngine } from "./src/services/aiOptimizationEngine";
 import { AIEnterpriseScalabilityEngine } from "./src/services/aiEnterpriseScalabilityEngine";
 import { RelationshipMemoryEngine } from "./src/lib/conversation/relationshipMemoryEngine";
+import { AIOrchestrator } from "./server/services/AIOrchestrator.js";
 
 dotenv.config();
 
@@ -38,103 +39,15 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-// Robust wrapper around OpenAI completions with exponential backoff
+// Robust wrapper around OpenAI completions with AIOrchestrator delegation
 async function generateContentWithRetry(params: any): Promise<any> {
-  const maxRetries = 3;
-  const startTime = Date.now();
-  const openAIKey = ConfigResolver.getOpenAIKey();
-
-  if (!openAIKey) {
-    throw new Error("OpenAI API Key is missing. Please configure it in your environment settings.");
-  }
-
-  // Parse prompt and system instructions
-  let systemInstruction = params.config?.systemInstruction || "You are a helpful AI assistant.";
-  let userContent = "";
-
-  if (typeof params.contents === "string") {
-    userContent = params.contents;
-  } else if (params.contents && Array.isArray(params.contents.parts)) {
-    // Handle parts if present
-    const textParts = params.contents.parts.filter((p: any) => p.text).map((p: any) => p.text);
-    userContent = textParts.join("\n");
-  } else if (params.contents && typeof params.contents === "object") {
-    userContent = JSON.stringify(params.contents);
-  }
-
-  // Ensure JSON instruction is present in system prompt if responseMimeType is json
-  if (params.config?.responseMimeType === "application/json" && !systemInstruction.toLowerCase().includes("json")) {
-    systemInstruction += "\n\nCRITICAL: Your response must be a valid, well-formed JSON object.";
-  }
-
-  let delay = 1000;
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`[SHANA Server] Attempting OpenAI GPT-4o-mini call (Attempt ${attempt}/${maxRetries})`);
-      
-      const headers: any = {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openAIKey}`,
-      };
-
-      const body: any = {
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: systemInstruction },
-          { role: "user", content: userContent }
-        ],
-        temperature: params.config?.temperature ?? 0.3,
-      };
-
-      if (params.config?.responseMimeType === "application/json") {
-        body.response_format = { type: "json_object" };
-      }
-
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`OpenAI HTTP Error ${response.status}: ${errorText}`);
-      }
-
-      const json = await response.json();
-      const outputText = json.choices[0].message.content || "";
-      const duration = Date.now() - startTime;
-
-      // Log metrics/telemetry using ProviderMonitor and UsageAnalyticsEngine
-      try {
-        const totalTokens = json.usage?.total_tokens || Math.floor(outputText.length / 4 + userContent.length / 4);
-        ProviderMonitor.trackOpenAIEvent('/api/generateContent', 'gpt-4o-mini', totalTokens, duration, true, {
-          feature: 'completions',
-          responseLength: outputText.length
-        });
-        UsageAnalyticsEngine.trackCall('openai', '/api/generateContent', duration, true, totalTokens);
-        LogAggregator.log('openai', 'info', 'completions', `Completions generated successfully using GPT-4o-mini in ${duration}ms. Tokens: ${totalTokens}`);
-      } catch (e) {
-        console.error('[Telemetry] Failed to log OpenAI success event:', e);
-      }
-
-      // Return structure compatible with the rest of the code: { text: "..." }
-      return {
-        text: outputText
-      };
-
-    } catch (err: any) {
-      console.warn(`[SHANA Server] OpenAI attempt ${attempt} failed:`, err?.message || String(err));
-      if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        delay *= 2;
-      } else {
-        throw err;
-      }
-    }
-  }
-
-  throw new Error("OpenAI API call failed after retrying.");
+  return await AIOrchestrator.generateCompletion({
+    userId: params.userId,
+    sessionId: params.sessionId,
+    category: params.category || 'completions',
+    contents: params.contents,
+    config: params.config
+  });
 }
 
 // Helper to extract text from file uploads
@@ -703,42 +616,26 @@ Return the response EXACTLY as a JSON object matching this schema:
     return res.status(500).json({ error: "OpenAI API Key is missing. Please configure it in your environment settings." });
   }
 
-  console.log("[SHANA Server] Attempting job description analysis via OpenAI GPT-4o-mini...");
+  console.log("[SHANA Server] Attempting job description analysis via AIOrchestrator...");
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openAIKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: `Current Candidate Profile:
+    const result = await generateContentWithRetry({
+      userId: currentProfile?.userId || req.body.userId,
+      category: 'job-description-analysis',
+      contents: `Current Candidate Profile:
 - Target Role: ${currentProfile?.targetRole || "Not specified"}
 - Industry: ${currentProfile?.industry || "Not specified"}
 - Experience Level: ${currentProfile?.experienceLevel || "Not specified"}
 
 Target Job Post Text/HTML:
 ${jobText.substring(0, 45000)}`,
-          },
-        ],
+      config: {
+        systemInstruction: systemPrompt,
         temperature: 0.2,
-      }),
+        responseMimeType: "application/json"
+      }
     });
-
-    if (response.ok) {
-      const json = await response.json();
-      const data = JSON.parse(json.choices[0].message.content);
-      return res.json({ success: true, data });
-    } else {
-      const errorText = await response.text();
-      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
-    }
+    const data = JSON.parse(result.text);
+    return res.json({ success: true, data });
   } catch (error: any) {
     console.error("[SHANA Server] OpenAI job analysis failed:", error);
     return res.status(500).json({ error: error.message || "Failed to analyze job post." });
@@ -800,38 +697,22 @@ Return the response exactly as a well-formed JSON object matching this schema:
   const openAIKey = ConfigResolver.getOpenAIKey();
 
   if (openAIKey) {
-    console.log("[SHANA Server] Attempting primary CV analysis via OpenAI GPT-4o-mini...");
+    console.log("[SHANA Server] Attempting primary CV analysis via AIOrchestrator...");
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openAIKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemPrompt },
-            {
-              role: "user",
-              content: `Please analyze this CV content:\n\n${cvText}`,
-            },
-          ],
+      const result = await generateContentWithRetry({
+        userId,
+        category: 'behavioral_reasoning',
+        contents: `Please analyze this CV content:\n\n${cvText}`,
+        config: {
+          systemInstruction: systemPrompt,
           temperature: 0.1,
-        }),
+          responseMimeType: "application/json"
+        }
       });
-
-      if (response.ok) {
-        const json = await response.json();
-        const parsedContent = JSON.parse(json.choices[0].message.content);
-        return res.json({ provider: "OpenAI", data: parsedContent });
-      } else {
-        const errorText = await response.text();
-        console.warn("[SHANA Server] OpenAI analysis call returned non-200 state, trying heuristic fallback...", errorText);
-      }
+      const parsedContent = JSON.parse(result.text);
+      return res.json({ provider: "OpenAI", data: parsedContent });
     } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI primary analysis error, falling back to heuristics:", openaiError);
+      console.error("[SHANA Server] OpenAI primary CV analysis error, falling back to heuristics:", openaiError);
     }
   }
 
@@ -1215,27 +1096,17 @@ CRITICAL OPERATING SPECIFICATIONS:
         });
       }
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openAIKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: messages,
-          temperature: 0.8,
-        }),
+      const result = await generateContentWithRetry({
+        userId: profile?.userId || req.body.userId,
+        sessionId: req.body.sessionId || drillId,
+        category: 'audio_interview',
+        contents: messages,
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.8
+        }
       });
-
-      if (response.ok) {
-        const json = await response.json();
-        const reply = json.choices[0].message.content;
-        return res.json({ response: reply.trim() });
-      } else {
-        const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI training chat returned non-200 state, trying heuristic fallback...", errText);
-      }
+      return res.json({ response: result.text.trim() });
     } catch (openaiError: any) {
       console.error("[SHANA Server] OpenAI training chat failed, falling back to heuristics:", openaiError);
     }
@@ -1291,7 +1162,7 @@ CRITICAL DIRECTIVES:
   const apiKey = ConfigResolver.getOpenAIKey();
 
   if (apiKey) {
-    console.log("[SHANA Server] Generating voice training review with OpenAI API...");
+    console.log("[SHANA Server] Generating voice training review with AIOrchestrator...");
     const openAISystemPrompt = `${systemPrompt}\n\nYou must return the output EXACTLY as a well-formed JSON object matching this schema:
 {
   "strength": "Clean summary of their biggest positive verbal presentation or structuring asset",
@@ -1300,36 +1171,18 @@ CRITICAL DIRECTIVES:
 }`;
 
     try {
-      const messages = [
-        { role: "system", content: openAISystemPrompt },
-        { 
-          role: "user", 
-          content: `Please review this training session dialogue log:\n\n${JSON.stringify(chatHistory)}` 
-        }
-      ];
-
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          response_format: { type: "json_object" },
-          messages: messages,
+      const result = await generateContentWithRetry({
+        userId: profile?.userId || req.body.userId,
+        category: 'detailed_report',
+        contents: `Please review this training session dialogue log:\n\n${JSON.stringify(chatHistory)}`,
+        config: {
+          systemInstruction: openAISystemPrompt,
           temperature: 0.3,
-        }),
+          responseMimeType: "application/json"
+        }
       });
-
-      if (response.ok) {
-        const json = await response.json();
-        const parsed = JSON.parse(json.choices[0].message.content);
-        return res.json({ data: parsed });
-      } else {
-        const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI train review call returned non-200 state, trying heuristic fallback...", errText);
-      }
+      const parsed = JSON.parse(result.text);
+      return res.json({ data: parsed });
     } catch (openaiError: any) {
       console.error("[SHANA Server] OpenAI voice training review failed, falling back to heuristics:", openaiError);
     }
@@ -1473,26 +1326,21 @@ app.post("/api/interview/chat", aiEndpointRateLimiter, verifyCreditMiddleware("M
         language || "English"
       );
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openAIKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: compressedMessages,
-          temperature: 0.7,
-        }),
+      const result = await generateContentWithRetry({
+        userId: profile?.userId || req.body.userId,
+        sessionId: blueprint?.id || "temp_session",
+        category: 'mirror_interview',
+        contents: compressedMessages,
+        config: {
+          systemInstruction: plannedSystemPrompt,
+          temperature: 0.7
+        }
       });
 
-      if (response.ok) {
-        const json = await response.json();
-        let reply = json.choices[0].message.content;
-
-        const promptTokens = json.usage?.prompt_tokens || Math.round(JSON.stringify(compressedMessages).length / 4);
-        const completionTokens = json.usage?.completion_tokens || Math.round(reply.length / 4);
-        AIOptimizationEngine.recordAPICall(promptTokens, completionTokens, Date.now() - startTime);
+      let reply = result.text;
+      const promptTokens = Math.round(JSON.stringify(compressedMessages).length / 4);
+      const completionTokens = Math.round(reply.length / 4);
+      AIOptimizationEngine.recordAPICall(promptTokens, completionTokens, Date.now() - startTime);
 
         // Prefix with polite interruption phrase if triggered
         if (interruptionPreface && !reply.toLowerCase().includes(interruptionPreface.toLowerCase().substring(0, 15))) {
@@ -1531,14 +1379,10 @@ app.post("/api/interview/chat", aiEndpointRateLimiter, verifyCreditMiddleware("M
         await new Promise(r => setTimeout(r, thinkingDelayMs));
 
         return res.json({ response: reply.trim(), conversationState: finalState, thinkingDelayMs });
-      } else {
-        const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI returned non-200 state, trying fallback...", errText);
+      } catch (openaiError: any) {
+        console.error("[SHANA Server] OpenAI interview conversation failed, falling back:", openaiError);
       }
-    } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI interview conversation failed, falling back:", openaiError);
     }
-  }
 
   // Simulation Fallback
   console.log("[SHANA Server] Fallback executing inside Conversation Intelligence Engine...");
@@ -1613,27 +1457,20 @@ Guidelines for generating the question:
   const openAIKey = ConfigResolver.getOpenAIKey();
 
   if (openAIKey) {
-    console.log("[SHANA Server] Question Engine: Calling primary OpenAI Chat Completion...");
+    console.log("[SHANA Server] Question Engine: Calling AIOrchestrator...");
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openAIKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: "Generate the next question based on the provided instructions." }
-          ],
+      const result = await generateContentWithRetry({
+        userId: user_profile?.userId || req.body.userId,
+        sessionId: director_state?.sessionId || "question_session",
+        category: 'followup_question',
+        contents: "Generate the next question based on the provided instructions.",
+        config: {
+          systemInstruction: systemPrompt,
           temperature: 0.7,
-        }),
+          responseMimeType: "application/json"
+        }
       });
-
-      if (response.ok) {
-        const json = await response.json();
-        const rawContent = json.choices[0].message.content;
+      const rawContent = result.text;
         
         let cleaned = rawContent.trim();
         if (cleaned.startsWith("```json")) {
@@ -1648,14 +1485,10 @@ Guidelines for generating the question:
 
         const parsed = JSON.parse(cleaned);
         return res.json({ questionPack: parsed });
-      } else {
-        const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI Question generation failed, trying heuristic fallback...", errText);
+      } catch (openaiError: any) {
+        console.error("[SHANA Server] OpenAI Question generation exception, falling back to heuristics:", openaiError);
       }
-    } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI Question generation exception, falling back to heuristics:", openaiError);
     }
-  }
 
   console.log("[SHANA Server] Question Engine: No active LLM provider succeeded. Returning empty/null to trigger client fallback.");
   return res.json({ questionPack: null });
@@ -1717,27 +1550,20 @@ Expected Competency: "${question_context?.expected_competency || "general_perfor
   const openAIKey = ConfigResolver.getOpenAIKey();
 
   if (openAIKey) {
-    console.log("[SHANA Server] Evaluation Engine: Calling primary OpenAI Chat Completion...");
+    console.log("[SHANA Server] Evaluation Engine: Calling AIOrchestrator...");
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openAIKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt }
-          ],
-          temperature: 0.1, // low temperature for high consistency and reproducibility
-        }),
+      const result = await generateContentWithRetry({
+        userId: user_profile?.userId || req.body.userId,
+        sessionId: session_state?.id || "evaluate_session",
+        category: 'premium_evaluation',
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.1,
+          responseMimeType: "application/json"
+        }
       });
-
-      if (response.ok) {
-        const json = await response.json();
-        const rawContent = json.choices[0].message.content;
+      const rawContent = result.text;
         
         let cleaned = rawContent.trim();
         if (cleaned.startsWith("```json")) {
@@ -1811,14 +1637,10 @@ Expected Competency: "${question_context?.expected_competency || "general_perfor
         parsed.ips_total = ips_total;
 
         return res.json({ evaluation: parsed });
-      } else {
-        const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI Evaluation failed, trying heuristic fallback...", errText);
+      } catch (openaiError: any) {
+        console.error("[SHANA Server] OpenAI Evaluation exception, falling back to heuristics:", openaiError);
       }
-    } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI Evaluation exception, falling back to heuristics:", openaiError);
     }
-  }
 
   console.log("[SHANA Server] Evaluation Engine: No active LLM provider succeeded. Returning empty/null to trigger client fallback.");
   return res.json({ evaluation: null });
@@ -1888,27 +1710,20 @@ Recent Feedback Notes: Strength="${recent_feedback?.strength || ""}", Improvemen
   const openAIKey = ConfigResolver.getOpenAIKey();
 
   if (openAIKey) {
-    console.log("[SHANA Server] Adaptation Engine: Calling primary OpenAI Chat Completion...");
+    console.log("[SHANA Server] Adaptation Engine: Calling AIOrchestrator...");
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openAIKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt }
-          ],
-          temperature: 0.1, // low temperature for high consistency and reproducibility
-        }),
+      const result = await generateContentWithRetry({
+        userId: user_profile?.userId || req.body.userId,
+        sessionId: session_state?.id || "adaptation_session",
+        category: 'behavioral_reasoning',
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.1,
+          responseMimeType: "application/json"
+        }
       });
-
-      if (response.ok) {
-        const json = await response.json();
-        const rawContent = json.choices[0].message.content;
+      const rawContent = result.text;
         
         let cleaned = rawContent.trim();
         if (cleaned.startsWith("```json")) {
@@ -1923,14 +1738,10 @@ Recent Feedback Notes: Strength="${recent_feedback?.strength || ""}", Improvemen
 
         const parsed = JSON.parse(cleaned);
         return res.json({ adaptation: parsed });
-      } else {
-        const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI Adaptation failed, trying heuristic fallback...", errText);
+      } catch (openaiError: any) {
+        console.error("[SHANA Server] OpenAI Adaptation exception, falling back to heuristics:", openaiError);
       }
-    } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI Adaptation exception, falling back to heuristics:", openaiError);
     }
-  }
 
   console.log("[SHANA Server] Adaptation Engine: No active LLM provider succeeded. Returning empty/null to trigger client fallback.");
   return res.json({ adaptation: null });
@@ -1999,27 +1810,20 @@ Evaluation History (last sessions/questions): ${JSON.stringify(evaluation_histor
   const openAIKey = ConfigResolver.getOpenAIKey();
 
   if (openAIKey) {
-    console.log("[SHANA Server] Insight Engine: Calling primary OpenAI Chat Completion...");
+    console.log("[SHANA Server] Insight Engine: Calling AIOrchestrator...");
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openAIKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt }
-          ],
-          temperature: 0.1, // low temperature for high consistency and reproducibility
-        }),
+      const result = await generateContentWithRetry({
+        userId: user_profile?.userId || req.body.userId,
+        sessionId: session_state?.id || "insight_session",
+        category: 'relationship-insight',
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.1,
+          responseMimeType: "application/json"
+        }
       });
-
-      if (response.ok) {
-        const json = await response.json();
-        const rawContent = json.choices[0].message.content;
+      const rawContent = result.text;
         
         let cleaned = rawContent.trim();
         if (cleaned.startsWith("```json")) {
@@ -2034,14 +1838,10 @@ Evaluation History (last sessions/questions): ${JSON.stringify(evaluation_histor
 
         const parsed = JSON.parse(cleaned);
         return res.json({ insightPack: parsed });
-      } else {
-        const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI Insight generation failed, trying heuristic fallback...", errText);
+      } catch (openaiError: any) {
+        console.error("[SHANA Server] OpenAI Insight generation exception, falling back to heuristics:", openaiError);
       }
-    } catch (openaiError: any) {
-      console.error("[SHANA Server] OpenAI Insight generation exception, falling back to heuristics:", openaiError);
     }
-  }
 
   console.log("[SHANA Server] Insight Engine: No active LLM provider succeeded. Returning empty/null to trigger client fallback.");
   return res.json({ insightPack: null });
@@ -2166,28 +1966,20 @@ In these trap questions, mention or refer indirectly to the difficulty they face
   const openAIKey = ConfigResolver.getOpenAIKey();
 
   if (openAIKey) {
-    console.log("[SHANA Server] Generating custom assessment questions via primary OpenAI...");
+    console.log("[SHANA Server] Generating custom assessment questions via AIOrchestrator...");
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openAIKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "system", content: "You are an elite corporate technical assessor. Generate questions in raw JSON format strictly matching the schema requested." },
-            { role: "user", content: prompt }
-          ],
-          response_format: { type: "json_object" },
+      const result = await generateContentWithRetry({
+        userId: profile?.userId || req.body.userId,
+        sessionId: "assessment_questions",
+        category: 'behavioral_reasoning',
+        contents: prompt,
+        config: {
+          systemInstruction: "You are an elite corporate technical assessor. Generate questions in raw JSON format strictly matching the schema requested.",
           temperature: 0.7,
-        }),
+          responseMimeType: "application/json"
+        }
       });
-
-      if (response.ok) {
-        const json = await response.json();
-        const textOutput = json.choices[0].message.content;
+      const textOutput = result.text;
         if (textOutput) {
           const parsed = JSON.parse(textOutput.trim());
           if (parsed && Array.isArray(parsed.questions) && parsed.questions.length === numQuestions) {
@@ -2213,14 +2005,10 @@ In these trap questions, mention or refer indirectly to the difficulty they face
             return res.json({ questions: normalizedQuestions });
           }
         }
-      } else {
-        const errText = await response.text();
-        console.warn("[SHANA Server] OpenAI assessment questions generation returned non-200 state, trying heuristic fallback...", errText);
+      } catch (openaiErr) {
+        console.error("[SHANA Server] OpenAI assessment questions generation failed, falling back to heuristics:", openaiErr);
       }
-    } catch (openaiErr) {
-      console.error("[SHANA Server] OpenAI assessment questions generation failed, falling back to heuristics:", openaiErr);
     }
-  }
 
   // Fallback to high-quality localized questions if API fails or is unavailable
   const isFr = (language === "French" || language === "FR" || language === "fr");
@@ -2486,35 +2274,23 @@ Please return a well-formed JSON object matching this schema:
 }`;
 
     try {
-      const gptResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openAIKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: "You are a professional audio, voice, and speech assessment system that outputs strict JSON." },
-            { role: "user", content: analysisPrompt }
-          ],
+      const result = await generateContentWithRetry({
+        userId: req.body.userId,
+        sessionId: req.body.sessionId || "analyze_audio_session",
+        category: 'audio_interview',
+        contents: analysisPrompt,
+        config: {
+          systemInstruction: "You are a professional audio, voice, and speech assessment system that outputs strict JSON.",
           temperature: 0.3,
-        }),
+          responseMimeType: "application/json"
+        }
       });
-
-      if (gptResponse.ok) {
-        const gptJson = await gptResponse.json();
-        const parsed = JSON.parse(gptJson.choices[0].message.content);
-        return res.json({
-          success: true,
-          method: usedAudio ? "audio_transcription" : "text_evaluation",
-          ...parsed
-        });
-      } else {
-        const errText = await gptResponse.text();
-        console.warn("[SHANA Server] GPT analysis call failed:", errText);
-      }
+      const parsed = JSON.parse(result.text);
+      return res.json({
+        success: true,
+        method: usedAudio ? "audio_transcription" : "text_evaluation",
+        ...parsed
+      });
     } catch (gptErr) {
       console.error("[SHANA Server] GPT analysis Exception:", gptErr);
     }
@@ -4082,6 +3858,9 @@ function getStripeInstance(): any {
   if (!stripeClient) {
     const key = process.env.STRIPE_SECRET_KEY || ConfigResolver.getStripeKey();
     if (key) {
+      if (key.trim().startsWith("pk_")) {
+        return null;
+      }
       const StripeModule = esmRequire("stripe");
       stripeClient = new StripeModule(key, {
         apiVersion: "2023-10-16",
@@ -4093,7 +3872,8 @@ function getStripeInstance(): any {
 
 // GET check if Stripe is configured
 app.get("/api/commerce/stripe/status", (req: any, res: any) => {
-  const hasKey = !!(process.env.STRIPE_SECRET_KEY || ConfigResolver.getStripeKey());
+  const key = process.env.STRIPE_SECRET_KEY || ConfigResolver.getStripeKey();
+  const hasKey = !!key && !key.trim().startsWith("pk_");
   return res.json({ configured: hasKey });
 });
 
@@ -4109,6 +3889,58 @@ app.get("/api/commerce/stripe/checkout", async (req: any, res: any) => {
   const product = STRIPE_PRODUCTS[productId as string];
   if (!product) {
     return res.status(404).send("Product not found.");
+  }
+
+  const key = process.env.STRIPE_SECRET_KEY || ConfigResolver.getStripeKey();
+  const isPublishableOnly = !!(key && key.trim().startsWith("pk_"));
+
+  if (isPublishableOnly) {
+    // If user configured a Publishable key instead of a Secret key, render a gorgeous help page
+    return res.send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Stripe Secret Key Required</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+        <style>
+          body { font-family: 'Inter', sans-serif; }
+          code, pre { font-family: 'JetBrains Mono', monospace; }
+        </style>
+      </head>
+      <body class="bg-zinc-950 text-zinc-100 min-h-screen flex items-center justify-center p-6">
+        <div class="max-w-md w-full bg-zinc-900 border border-red-500/30 rounded-3xl p-8 space-y-6 shadow-2xl text-center">
+          <div class="w-16 h-16 bg-red-500/10 text-red-400 rounded-2xl flex items-center justify-center mx-auto border border-red-500/20">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-shield-alert"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <div class="space-y-2">
+            <h1 class="text-xl font-bold tracking-tight text-white font-sans">Stripe Secret Key Required</h1>
+            <p class="text-zinc-400 text-xs leading-relaxed max-w-sm mx-auto">
+              You configured a Stripe <strong>Publishable Key</strong> (starts with <code class="text-amber-400 bg-amber-500/10 px-1 rounded">pk_</code>), but Stripe Checkout session creation requires a Stripe <strong>Secret Key</strong> (starts with <code class="text-emerald-400 bg-emerald-500/10 px-1 rounded">sk_</code>).
+            </p>
+          </div>
+          <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 text-left space-y-3">
+            <h3 class="text-xs font-bold text-zinc-300 uppercase tracking-wide font-sans">How to resolve:</h3>
+            <ol class="text-[11px] text-zinc-400 leading-relaxed list-decimal list-inside space-y-1.5 font-sans">
+              <li>Go to your <a href="https://dashboard.stripe.com/test/apikeys" target="_blank" class="text-indigo-400 hover:underline">Stripe Dashboard</a>.</li>
+              <li>Find your <strong>Secret Key</strong> (starts with <code class="text-stone-300 select-all">sk_live_...</code> or <code class="text-stone-300 select-all font-mono">sk_test_...</code>).</li>
+              <li>Open <strong>Settings</strong> panel (or the Secrets manager) inside Google AI Studio.</li>
+              <li>Replace your publishable key with your <strong>Secret Key</strong> under the environment variable:</li>
+            </ol>
+            <div class="p-2.5 bg-zinc-900 rounded-xl border border-zinc-800 flex items-center justify-between">
+              <code class="text-xs text-indigo-400 select-all font-bold font-mono">STRIPE_SECRET_KEY</code>
+              <span class="text-[9px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded font-bold font-sans">Secret</span>
+            </div>
+          </div>
+          <button onclick="window.close()" class="w-full py-2.5 bg-zinc-800 hover:bg-zinc-750 text-zinc-200 text-xs font-semibold rounded-xl transition-all border border-zinc-700 cursor-pointer">
+            Close Screen
+          </button>
+        </div>
+      </body>
+      </html>
+    `);
   }
 
   const stripe = getStripeInstance();

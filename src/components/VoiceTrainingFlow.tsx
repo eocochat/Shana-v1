@@ -1146,7 +1146,7 @@ export default function VoiceTrainingFlow({
   };
 
   return (
-    <div className="max-w-3xl mx-auto py-1 animate-fade-in font-sans">
+    <div className="max-w-3xl mx-auto py-1 px-4 md:px-0 animate-fade-in font-sans">
       
       {/* 1 === START SESSION SCREEN === */}
       {step === 'start' && (
@@ -1357,7 +1357,7 @@ export default function VoiceTrainingFlow({
 
       {/* 2 === ACTIVE DIALOGUE SIMULATION === */}
       {step === 'active' && (
-        <div className="max-w-2xl mx-auto space-y-10 py-6 px-4 animate-fade-in">
+        <div className="max-w-2xl mx-auto space-y-10 py-6 md:px-0 animate-fade-in">
           
           {/* Subtle Minimalist Header Line */}
           <div className="flex justify-between items-center text-[#9CA3AF] text-[10px] font-mono tracking-widest uppercase pb-2 border-b-2 border-stone-950">
@@ -1463,7 +1463,7 @@ export default function VoiceTrainingFlow({
               <div className="bg-transparent text-stone-950 py-6 md:py-10 flex flex-col items-center justify-center space-y-12 relative">
             
             {/* Prompt/Question Card - Highly refined display typography with generous breathing room */}
-            <div className="text-center space-y-6 max-w-xl mx-auto">
+            <div className="w-full max-w-xl mx-auto text-center space-y-6">
               {isLoading ? (
                 <div className="h-24 flex flex-col items-center justify-center space-y-3">
                   <Loader2 className="w-5 h-5 text-stone-950 animate-spin" />
@@ -1491,7 +1491,7 @@ export default function VoiceTrainingFlow({
                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                  className="mx-auto max-w-sm p-4 bg-[#EDC154] border-2 border-stone-950 shadow-[4px_4px_0px_0px_#111111] rounded-2xl flex items-center gap-2.5 transition-all"
+                  className="w-full max-w-sm mx-auto p-4 bg-[#EDC154] border-2 border-stone-950 shadow-[4px_4px_0px_0px_#111111] rounded-2xl flex items-center gap-2.5 transition-all"
                 >
                   <span className="text-lg">💡</span>
                   <div className="text-left">
